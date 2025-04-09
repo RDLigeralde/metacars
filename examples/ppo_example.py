@@ -20,7 +20,7 @@ if train:
     env = gym.make(
         "f1tenth_gym:f1tenth-v0",
         config={
-            "map": "Spielberg",
+            "map": "lup_clean",
             "num_agents": 1,
             "timestep": 0.01,
             "num_beams": 36,
