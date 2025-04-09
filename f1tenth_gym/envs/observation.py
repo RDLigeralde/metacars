@@ -216,8 +216,6 @@ class FeaturesObservation(Observation):
         for i, agent_id in enumerate(self.env.unwrapped.agent_ids):
             scan = self.env.unwrapped.sim.agent_scans[i]
             agent = self.env.unwrapped.sim.agents[i]
-            lap_time = self.env.unwrapped.lap_times[i]
-            lap_count = self.env.unwrapped.lap_counts[i]
 
             std_state = agent.standard_state
 
@@ -238,10 +236,7 @@ class FeaturesObservation(Observation):
                 "linear_vel_y": vy,
                 "ang_vel_z": angvel,
                 "delta": delta,
-                "beta": beta,
-                "collision": int(agent.in_collision),
-                "lap_time": lap_time,
-                "lap_count": lap_count,
+                "beta": beta
             }
 
             # add agent's observation to multi-agent observation
@@ -257,7 +252,54 @@ class FeaturesObservation(Observation):
                     obs[agent_id][key] = np.array(obs[agent_id][key], dtype=np.float32)
 
         return obs
+    
+class FeaturesObservationRL(Observation):
+    def __init__(self, env, features: List[str], ego_idx: int = 0, large_num: float = 1e30):
+        super().__init__(env)
+        self.features = features
+        self.large_num = large_num
+        self.ego_idx = ego_idx
+        
+    def space(self):
+        scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
+        scan_range = (
+            self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
+        )
 
+        ego_dict = {
+            'scan': gym.spaces.Box(
+                low=0.0, high=scan_range, shape=(scan_size,), dtype=np.float32
+            ),
+            'pose': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(3,), dtype=np.float32
+            ),
+            'vel': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(3,), dtype=np.float32
+            ),
+            'heading': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(2,), dtype=np.float32
+            )
+        }
+        return gym.spaces.Dict(ego_dict)
+    
+    def observe(self):
+        scan = self.env.unwrapped.sim.agent_scans[self.ego_idx]
+        agent = self.env.unwrapped.sim.agents[self.ego_idx]
+        std_state = agent.standard_state
+        x, y, theta = std_state["x"], std_state["y"], std_state["yaw"]
+        delta = std_state["delta"]
+        beta = std_state["slip"]
+        vx = std_state["v_x"]
+        vy = std_state["v_y"]
+        angvel = std_state["yaw_rate"]
+        
+        # create agent's observation dict
+        return {
+            "scan": scan.astype(np.float32),
+            "pose": np.array((x,y,theta), dtype=np.float32),
+            "vel": np.array((vx,vy,angvel), dtype=np.float32),
+            "heading": np.array((delta, beta), dtype=np.float32)
+        }
 
 class VectorObservation(Observation):
     def __init__(self, env, features: List[str]):
@@ -373,5 +415,18 @@ def observation_factory(env, type: str | None, **kwargs) -> Observation:
             "scan",
         ]
         return VectorObservation(env, features=features)
+    elif type == "frenet_rl":
+        features = [
+            "scan",
+            "pose_x",
+            "pose_y",
+            "pose_theta",
+            "linear_vel_x",
+            "linear_vel_y",
+            "ang_vel_z",
+            "delta",
+            "beta"
+        ]
+        return FeaturesObservationRL(env, features=features)
     else:
         raise ValueError(f"Invalid observation type {type}.")

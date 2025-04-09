@@ -1,19 +1,21 @@
-import gymnasium as gym
 from stable_baselines3 import PPO
+import gymnasium as gym
 
 # if using wandb (recommended):
 from wandb.integration.sb3 import WandbCallback
 import wandb
 
 # toggle this to train or evaluate
-train = False
+train = True
 
 if train:
+    """
     run = wandb.init(
         project="f1tenth_gym_ppo",
         sync_tensorboard=True,
         save_code=True,
     )
+    """
 
     env = gym.make(
         "f1tenth_gym:f1tenth-v0",
@@ -24,22 +26,27 @@ if train:
             "num_beams": 36,
             "integrator": "rk4",
             "control_input": ["speed", "steering_angle"],
-            "observation_config": {"type": "rl"},
+            "observation_config": {"type": "frenet_rl"},
             "reset_config": {"type": "rl_random_static"},
         },
     )
 
     # will be faster on cpu
     model = PPO(
-        "MlpPolicy", env, verbose=1, tensorboard_log=f"runs/{run.id}", device="cpu", seed=42
+        "MultiInputPolicy", 
+        env, 
+        verbose=1, 
+        #tensorboard_log=f"runs/{run.id}",
+        device="cpu", 
+        seed=42
     )
     model.learn(
         total_timesteps=1_000_000,
-        callback=WandbCallback(
-            gradient_save_freq=0, model_save_path=f"models/{run.id}", verbose=2
-        ),
+        #callback=WandbCallback(
+        #    gradient_save_freq=0, model_save_path=f"models/{run.id}", verbose=2
+        #),
     )
-    run.finish()
+    #run.finish()
 
 else:
     model_path = "models/3wlusg06/model.zip"
@@ -53,7 +60,7 @@ else:
             "num_beams": 36,
             "integrator": "rk4",
             "control_input": ["speed", "steering_angle"],
-            "observation_config": {"type": "rl"},
+            "observation_config": {"type": "frenet_rl"},
             "reset_config": {"type": "rl_random_static"},
         },
         render_mode="human",
