@@ -9,13 +9,11 @@ import wandb
 train = True
 
 if train:
-    """
     run = wandb.init(
         project="f1tenth_gym_ppo",
         sync_tensorboard=True,
         save_code=True,
     )
-    """
 
     env = gym.make(
         "f1tenth_gym:f1tenth-v0",
@@ -34,17 +32,17 @@ if train:
     # will be faster on cpu
     model = PPO(
         "MultiInputPolicy", 
-        env, 
+        env,
         verbose=1, 
-        #tensorboard_log=f"runs/{run.id}",
+        tensorboard_log=f"runs/{run.id}",
         device="cpu", 
         seed=42
     )
     model.learn(
         total_timesteps=1_000_000,
-        #callback=WandbCallback(
-        #    gradient_save_freq=0, model_save_path=f"models/{run.id}", verbose=2
-        #),
+        callback=WandbCallback(
+            gradient_save_freq=0, model_save_path=f"models/{run.id}", verbose=2
+        ),
     )
     #run.finish()
 

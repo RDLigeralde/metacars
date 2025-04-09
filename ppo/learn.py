@@ -1,0 +1,76 @@
+from sb3_contrib import RecurrentPPO
+from stable_baselines3 import PPO
+import gymnasium as gym
+
+from wandb.integration.sb3 import WandbCallback
+import wandb
+
+import yml_utils as yml
+import argparse
+import os
+
+def train(
+    env_args: dict,
+    ppo_args: dict,
+    train_args: dict,
+    log_args: dict,
+    yml_name: str
+):
+    if log_args['project_name']:
+        run = wandb.init(
+            project=log_args['project_name'],
+            sync_tensorboard=True,
+            save_code=True,
+        )
+        callback = WandbCallback(
+            gradient_save_freq=0, model_save_path=f"models/{yml_name}", verbose=2
+        )
+    else:
+        run = None
+        callback = None
+    
+    tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
+
+    env = gym.make(
+        'f1tenth_gym:f1tenth-v0',
+        config=env_args
+    )
+
+    recurrent = ppo_args.pop('recurrent')
+    ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
+    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
+
+    ppo = ppo_type(
+        policy=policy,
+        env=env,
+        tensorboard_log=tensorboard_log,
+        **ppo_args,
+        verbose=1
+    )
+
+    ppo.learn(
+        **train_args,
+        callback=callback
+    )
+    if run:
+        run.finish()
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--config', type=str, help='Path to the config file'
+    )
+    args = parser.parse_args()
+
+    env_args, ppo_args, train_args, log_args = yml.get_cfg_dicts(args.config)
+    yml_name = os.path.basename(args.config)
+    train(
+        env_args=env_args,
+        ppo_args=ppo_args,
+        train_args=train_args,
+        log_args=log_args,
+        yml_name=os.path.splitext(yml_name)[0]
+    )
+
+if __name__ == '__main__':
+    main()

@@ -1,33 +1,57 @@
 world:
-  map:
-  num_agents:
-  timestep:
-  seed:
-  num_envs:
-  observation_config:
-  control_input:
-  render_mode:
+  seed: 42
+  map: lup_clean
+  num_agents: 1
+  num_beams: 36 # number of lidar beams
+  timestep: 0.01
+  observation_config: 
+    type: frenet_rl # need the nested dict for the observation config
+  reset_config:
+    type: rl_random_static
+  control_input: ['speed', 'steering_angle']
 
 car:
-  num_beams:
+  mu: 1.0489
+  C_Sf: 4.718
+  C_Sr: 5.4562
+  width: 0.31
+  length: 0.58
+  m: 3.74
+  I: 0.04712
+  h: 0.074
+  v_min: -5.0
+  v_max: 20.0
+  a_max: 9.51
+  s_min: -0.4189
+  s_max: 0.4189
+  v_switch: 7.319
+  sv_min: -3.2
+  sv_max: 3.2
 
-logs:
-  tensorboard_log:
-
-params:
-  device: 'cuda'
-  learning_rate: 3e-4
+ppo_params:
+  recurrent: False # recurrent doesn't work yet
+  device: cpu # actually faster on cpu, for some reason
+  learning_rate: 0.0003
   n_steps: 2048
   batch_size: 64
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
   clip_range: 0.2
-  clip_range_vf: None
+  clip_range_vf: null
   normalize_advantage: True
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
   use_sde: False
   sde_sample_freq: -1
-  rollout_buffer_class: None
+
+train_params:
+  total_timesteps: 1000000
+  log_interval: 1
+  reset_num_timesteps: True
+  progress_bar: False
+
+log:
+  log_tensorboard: True
+  project_name: f1tenth_gym_ppo # set null to disable wandb
