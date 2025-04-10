@@ -2,6 +2,7 @@ world:
   seed: 42
   map: lup_clean
   num_agents: 1
+  num_envs: 2
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 

@@ -495,13 +495,42 @@ class F110Env(gym.Env):
 
             prog = current_s - self.last_s[i]
             if prog > 0.9 * self.track.centerline.spline.s[-1]:
-                prog = (self.track.centerline.spline.s[-1] - self.last_s) + current_s
+                prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
             reward += prog
 
             if self.collisions[i]:
                 reward -= 1.
 
             self.last_s[i] = current_s
+        return reward
+    
+    def get_reward_vectorized(self):
+        """
+        Get the reward for the current step (fully vectorized version)
+        """
+        # Initialize last_s attribute if not present
+        if not hasattr(self, "last_s"):
+            self.last_s = np.zeros(self.num_agents)
+        
+        # Calculate current arclength for all agents at once using vectorized functions
+        current_s, _ = self.track.centerline.spline.calc_arclength_inaccurate_vectorized(
+            self.poses_x, self.poses_y
+        )
+        
+        # Calculate progress for all agents
+        prog = current_s - self.last_s
+        
+        # Handle wrap-around for agents that crossed the finish line
+        track_length = self.track.centerline.spline.s[-1]
+        wrap_indices = prog > 0.9 * track_length
+        prog[wrap_indices] = (track_length - self.last_s[wrap_indices]) + current_s[wrap_indices]
+        
+        # Sum all progress and subtract collision penalties
+        reward = np.sum(prog) - np.sum(self.collisions.astype(float))
+        
+        # Update last_s
+        self.last_s = current_s
+        
         return reward
 
     def step(self, action):
@@ -550,6 +579,7 @@ class F110Env(gym.Env):
 
         # calc reward
         reward = self._get_reward()
+        # reward = self.get_reward_vectorized()
 
         return obs, reward, done, truncated, info
 

@@ -1,3 +1,5 @@
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import SubprocVecEnv
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
 import gymnasium as gym
@@ -31,10 +33,18 @@ def train(
     
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
 
-    env = gym.make(
-        'f1tenth_gym:f1tenth-v0',
-        config=env_args
-    )
+    num_envs = env_args.pop('num_envs')
+    if num_envs == 1:
+        env = gym.make(
+            'f1tenth_gym:f1tenth-v0',
+            config=env_args
+        )
+    else:
+        env = make_vec_env(
+            'f1tenth_gym:f1tenth-v0',
+            n_envs=num_envs,
+            env_kwargs=env_args
+        )
 
     recurrent = ppo_args.pop('recurrent')
     ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
