@@ -1,7 +1,7 @@
 world:
   seed: 42
   map: lup_clean
-  num_agents: 1
+  num_agents: 2
   num_envs: 2
   num_beams: 36 # number of lidar beams
   timestep: 0.01
@@ -30,7 +30,7 @@ car:
   sv_max: 3.2
 
 ppo_params:
-  recurrent: False # recurrent doesn't work yet
+  recurrent: True
   device: cpu # actually faster on cpu, for some reason
   learning_rate: 0.0003
   n_steps: 2048
@@ -54,5 +54,5 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: True
-  project_name: f1tenth_gym_ppo # set null to disable wandb
+  log_tensorboard: False
+  project_name: null # set null to disable wandb

@@ -1,8 +1,9 @@
+from rl_env import F110Ego
+import gymnasium as gym
+
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
-import gymnasium as gym
 
 from wandb.integration.sb3 import WandbCallback
 import wandb
@@ -33,17 +34,17 @@ def train(
     
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
 
+    def make_env():
+        base = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, reward_idxs=[0]) # assuming ego_idx==0
+        return F110Ego(base)
+
     num_envs = env_args.pop('num_envs')
     if num_envs == 1:
-        env = gym.make(
-            'f1tenth_gym:f1tenth-v0',
-            config=env_args
-        )
+        env = make_env()
     else:
         env = make_vec_env(
-            'f1tenth_gym:f1tenth-v0',
-            n_envs=num_envs,
-            env_kwargs=env_args
+            make_env,
+            n_envs=num_envs
         )
 
     recurrent = ppo_args.pop('recurrent')
@@ -62,6 +63,7 @@ def train(
         **train_args,
         callback=callback
     )
+
     if run:
         run.finish()
 
