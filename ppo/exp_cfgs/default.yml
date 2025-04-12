@@ -1,6 +1,6 @@
 world:
   seed: 42
-  map: lup_clean
+  map: /Users/robbyligeralde/ese615/f1tenth_ppo/maps/easy # either single map or dir to be sampled from
   num_agents: 1
   num_envs: 1
   num_beams: 36 # number of lidar beams
@@ -33,7 +33,7 @@ car:
   sv_max: 3.2
 
 ppo_params:
-  recurrent: True
+  recurrent: False
   device: cpu # actually faster on cpu, for some reason
   learning_rate: 0.0003
   n_steps: 2048

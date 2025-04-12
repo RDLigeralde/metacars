@@ -5,6 +5,7 @@ import tempfile
 import numpy as np
 import requests
 from numba import njit
+import os
 
 
 def find_track_dir(track_name: str) -> pathlib.Path:
@@ -26,6 +27,8 @@ def find_track_dir(track_name: str) -> pathlib.Path:
     FileNotFoundError
         if no map directory matching the track name is found
     """
+    if os.path.isdir(track_name):
+        return pathlib.Path(track_name)
     map_dir = pathlib.Path(__file__).parent.parent.parent.parent / "maps"
 
     if not (map_dir / track_name).exists():
@@ -53,7 +56,7 @@ def find_track_dir(track_name: str) -> pathlib.Path:
     raise FileNotFoundError(f"no mapdir matching {track_name} in {[map_dir]}")
 
 
-#@njit(fastmath=False, cache=True)
+@njit(fastmath=False, cache=True)
 def nearest_point_on_trajectory(point: np.ndarray, trajectory: np.ndarray) -> tuple:
     """
     Return the nearest point along the given piecewise linear trajectory.

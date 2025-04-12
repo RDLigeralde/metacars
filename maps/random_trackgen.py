@@ -41,26 +41,42 @@ import shapely.geometry as shp
 
 def main(args):
     n_maps = args.n_maps
+    tt_split = args.tt_split
     outdir = args.outdir
     seed = args.seed
 
-    np.random.seed(seed)
+    n_train = int(n_maps * tt_split)
+    n_test = n_maps - n_train
+    print(f"[info] generating {n_train} training maps and {n_test} testing maps")
+
+    train_dir = outdir / "train"
+    test_dir = outdir / "test"
 
     outdir.mkdir(parents=True, exist_ok=True)
+    train_dir.mkdir(parents=True, exist_ok=True)
+    test_dir.mkdir(parents=True, exist_ok=True)
 
-    for i in range(n_maps):
-        while True:
-            try:
-                print(f"[info] creating track {i}")
-                track, track_int, track_ext = create_track()
-                convert_track(track, track_int, track_ext, i, outdir)
-                print(f"[info] saved track {i} in {outdir}/")
-                break
-            except Exception as _:  # noqa: F841
-                print("[error] failed to create track. Retrying...")
-                continue
-            print()
+    np.random.seed(seed)
 
+    def create_multi(n_tracks, outdir):
+        for i in range(n_tracks):
+            while True:
+                try:
+                    tdir = outdir / f"map{i}"
+                    tdir.mkdir(parents=True, exist_ok=True)
+                    print(f"    [info] creating track {i}")
+                    track, track_int, track_ext = create_track()
+                    convert_track(track, track_int, track_ext, i, tdir)
+                    print(f"    [info] saved track {i} in {tdir}/")
+                    break
+                except Exception as _:
+                    print("     [error] failed to create track. Retrying...")
+                    continue
+        
+    print("[info] creating training tracks")
+    create_multi(n_train, train_dir)
+    print("[info] creating testing tracks")
+    create_multi(n_test, test_dir)
 
 def create_track():
     CHECKPOINTS = 16
@@ -229,7 +245,7 @@ def convert_track(track, track_int, track_ext, track_id, outdir):
 
     # create yaml file
     with open(track_filepath.with_suffix(".yaml"), "w") as yaml:
-        yaml.write(f"image: map{track_id}.pgm\n")
+        yaml.write(f"image: map{track_id}_map.pgm\n")
         yaml.write("resolution: 0.062500\n")
         yaml.write(f"origin: [{map_origin_x},{map_origin_y},0.000000]\n")
         yaml.write("negate: 0\n")
@@ -239,11 +255,10 @@ def convert_track(track, track_int, track_ext, track_id, outdir):
     # Saving centerline as a csv
     centerline_filepath = outdir / f"map{track_id}_centerline.csv"
     with open(centerline_filepath, "w") as waypoints_csv:
-        waypoints_csv.write("#x,y\n")
+        waypoints_csv.write("# x_m, y_m,  w_tr_right_m, w_tr_left_m\n")
         for row in xy_pixels:
-            waypoints_csv.write(f"{0.05 * row[0]}, {0.05 * row[1]}\n")
-
-
+            waypoints_csv.write(f"{0.05 * row[0]}, {0.05 * row[1]}, {1.1}, {1.1}\n") # TODO: figure out variable width maps
+ 
 if __name__ == "__main__":
     import argparse
 
@@ -253,6 +268,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--n-maps", type=int, default=3, help="Number of maps to create"
+    )
+    parser.add_argument(
+        "--tt_split", type=float, default=0.8, help="Train percentage"
     )
     parser.add_argument(
         "--outdir", type=pathlib.Path, default="./maps", help="Out directory"

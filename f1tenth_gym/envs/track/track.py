@@ -8,6 +8,7 @@ import yaml
 from PIL import Image
 from PIL.Image import Transpose
 from yamldataclassconfig.config import YamlDataClassConfig
+import os
 
 from . import Raceline
 from .cubic_spline import CubicSpline2D
@@ -140,6 +141,11 @@ class Track:
                     track_dir / f"{track}_centerline.csv",
                     track_scale=track_scale,
                 )
+            elif (track_dir / f"{os.path.basename(track_dir)}_centerline.csv").exists():
+                centerline = Raceline.from_centerline_file(
+                    track_dir / f"{os.path.basename(track_dir)}_centerline.csv",
+                    track_scale=track_scale,
+                )
             else:
                 centerline = None
 
@@ -200,7 +206,7 @@ class Track:
 
             # load occupancy grid
             # Image path is from path + image name from track_spec
-            image_path = path.parent / track_spec.image  
+            image_path = path.parent / track_spec.image 
             image = Image.open(image_path).transpose(Transpose.FLIP_TOP_BOTTOM)
             occupancy_map = np.array(image).astype(np.float32)
             occupancy_map[occupancy_map <= 128] = 0.0

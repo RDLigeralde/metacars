@@ -9,16 +9,11 @@ import wandb
 train = True
 
 if train:
-    run = wandb.init(
-        project="f1tenth_gym_ppo",
-        sync_tensorboard=True,
-        save_code=True,
-    )
 
     env = gym.make(
         "f1tenth_gym:f1tenth-v0",
         config={
-            "map": "lup_clean",
+            "map": "Spielberg",
             "num_agents": 1,
             "timestep": 0.01,
             "num_beams": 36,
@@ -34,15 +29,12 @@ if train:
         "MultiInputPolicy", 
         env,
         verbose=1, 
-        tensorboard_log=f"runs/{run.id}",
+        tensorboard_log=f"runs/1",
         device="cpu", 
         seed=42
     )
     model.learn(
-        total_timesteps=1_000_000,
-        callback=WandbCallback(
-            gradient_save_freq=0, model_save_path=f"models/{run.id}", verbose=2
-        ),
+        total_timesteps=1_000_000
     )
     #run.finish()
 
