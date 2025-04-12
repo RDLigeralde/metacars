@@ -1,4 +1,4 @@
-from gymnasium import spaces
+from f1tenth_gym.envs import F110Env
 import gymnasium as gym
 import numpy as np
 
@@ -47,3 +47,44 @@ class F110Ego(gym.Wrapper):
         """Update opponent policy"""
         self.opps[idx] = opp
 
+class F110EnvDR(F110Env):
+    def __init__(
+        self,
+        config: dict,
+        render_mode: str = None,
+        reward_idxs: List[int]=None,
+        **kwargs         
+    ):
+        """
+        F110Env with support for domain randomization
+
+        Enabled by setting 'param': {'min': val, 'max': val} in config.yml
+        instead of static values
+        """
+        self.config_input = config
+        self.params_input = config['params']
+
+        config = self._sample_dict(self.config_input)
+        config['params'] = self._sample_dict(self.params_input)
+        super().__init__(config, render_mode, reward_idxs, **kwargs)
+
+    def _sample_dict(self, params: dict):
+        """Sample parameters for domain randomization"""
+        pcopy = params.copy()
+        for key, val in pcopy.items():
+            if isinstance(val, dict) and 'min' in val and 'max' in val:
+                pcopy[key] = np.random.uniform(val['min'], val['max'])
+        return pcopy
+    
+    def reset(self, seed=None, options=None):
+        """resets agents, randomizes params"""
+        if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
+            config = self._sample_dict(self.config_input)
+            config['params'] = self._sample_dict(self.params_input)
+            self.configure({'params': config['params']})
+
+            for k, v in config.items():
+                if k != 'params' and hasattr(self, k):
+                    setattr(self, k, v)
+                    
+        return super().reset(seed=seed, options=options)

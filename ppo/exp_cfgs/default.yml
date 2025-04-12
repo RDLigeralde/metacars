@@ -1,8 +1,8 @@
 world:
   seed: 42
   map: lup_clean
-  num_agents: 2
-  num_envs: 2
+  num_agents: 1
+  num_envs: 1
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -12,7 +12,10 @@ world:
   control_input: ['speed', 'steering_angle']
 
 car:
-  mu: 1.0489
+  #mu: 1.0489
+  mu:
+    min: 0.5
+    max: 1.5
   C_Sf: 4.718
   C_Sr: 5.4562
   width: 0.31
