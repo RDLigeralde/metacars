@@ -35,13 +35,19 @@ def train(
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
 
     def make_env():
-        base = gym.make('ppo:f1tenth-v0-dr', config=env_args, reward_idxs=[0]) # assuming ego_idx==0
+        base = gym.make('ppo:f1tenth-v0-dr', config=env_args)
         return F110Ego(base)
 
     num_envs = env_args.pop('num_envs')
     if num_envs == 1:
         env = make_env()
+    elif num_envs > 1:
+        env = make_vec_env(
+            make_env,
+            n_envs=num_envs
+        )
     else:
+        num_envs = os.cpu_count()
         env = make_vec_env(
             make_env,
             n_envs=num_envs

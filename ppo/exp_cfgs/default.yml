@@ -1,8 +1,8 @@
 world:
   seed: 42
-  map: /Users/robbyligeralde/ese615/f1tenth_ppo/maps/easy # either single map or dir to be sampled from
+  map: Spielberg # either single map or dir to be sampled from
   num_agents: 1
-  num_envs: 1
+  num_envs: 2 # set -1 to use number of cpu cores
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 

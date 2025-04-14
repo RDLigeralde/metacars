@@ -53,7 +53,6 @@ class F110EnvDR(F110Env):
         self,
         config: dict,
         render_mode: str = None,
-        reward_idxs: List[int]=None,
         **kwargs         
     ):
         """
@@ -79,7 +78,7 @@ class F110EnvDR(F110Env):
 
         config = self._sample_dict(self.config_input)
         config['params'] = self._sample_dict(self.params_input)
-        super().__init__(config, render_mode, reward_idxs, **kwargs)
+        super().__init__(config, render_mode, **kwargs)
 
     def _sample_dict(self, params: dict):
         """Sample parameters for domain randomization"""
@@ -106,3 +105,25 @@ class F110EnvDR(F110Env):
             self.update_map(config['map'])
         
         return super().reset(seed=seed, options=options)
+
+    def _get_reward(self):
+        """
+        Same logic as f110 applied to ego agent only
+        Will definitely want to play with this later
+        (ex: laptime reward upon loop completion, consecutive loop completion, etc)
+        """
+        if not hasattr(self, "last_s"):
+            self.last_s = 0.0
+
+        current_s, _ = (
+            self.track.centerline.spline.calc_arclength_inaccurate(
+                self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
+            )
+        )
+
+        prog = current_s - self.last_s
+        if prog > 0.9 * self.track.centerline.spline.s[-1]:
+            prog = (self.track.centerline.spline.s[-1] - self.last_s) + current_s
+
+        self.last_s = current_s
+        return prog if not self.collisions[self.ego_idx] else prog - 1.0
