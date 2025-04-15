@@ -2,7 +2,7 @@ world:
   seed: 42
   map: Spielberg # either single map or dir to be sampled from
   num_agents: 1
-  num_envs: 2 # set -1 to use number of cpu cores
+  num_envs: 1 # set -1 to use number of cpu cores
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -10,12 +10,12 @@ world:
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
 
 car:
-  #mu: 1.0489
   mu:
     min: 0.5
-    max: 1.5
+    max: 1.0489
   C_Sf: 4.718
   C_Sr: 5.4562
   width: 0.31

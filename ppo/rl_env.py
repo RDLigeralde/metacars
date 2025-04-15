@@ -31,7 +31,9 @@ class F110Ego(gym.Wrapper):
 
         self.opp_idxs = [i for i in range(self.num_agents) if i != self.ego_idx]
         self.opps = opps if opps else [OpponentDriver()] * (self.num_agents - 1)
-        
+
+        self.render_mode = env.render_mode
+
     def step(self, action: np.ndarray):
         """Steps using provided action + opponent policies"""
         actions = np.zeros((self.num_agents, 2))
@@ -47,6 +49,28 @@ class F110Ego(gym.Wrapper):
     def update_opponent(self, opp, idx):
         """Update opponent policy"""
         self.opps[idx] = opp
+
+    def _get_reward(self):
+        """
+        Same logic as f110 applied to ego agent only
+        Will definitely want to play with this later
+        (ex: laptime reward upon loop completion, consecutive loop completion, etc)
+        """
+        if not hasattr(self, "last_s"):
+            self.last_s = 0.0
+
+        current_s, _ = (
+            self.track.centerline.spline.calc_arclength_inaccurate(
+                self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
+            )
+        )
+
+        prog = current_s - self.last_s
+        if prog > 0.9 * self.track.centerline.spline.s[-1]:
+            prog = (self.track.centerline.spline.s[-1] - self.last_s) + current_s
+
+        self.last_s = current_s
+        return prog if not self.collisions[self.ego_idx] else prog - 1.0
 
 class F110EnvDR(F110Env):
     def __init__(
@@ -106,24 +130,4 @@ class F110EnvDR(F110Env):
         
         return super().reset(seed=seed, options=options)
 
-    def _get_reward(self):
-        """
-        Same logic as f110 applied to ego agent only
-        Will definitely want to play with this later
-        (ex: laptime reward upon loop completion, consecutive loop completion, etc)
-        """
-        if not hasattr(self, "last_s"):
-            self.last_s = 0.0
-
-        current_s, _ = (
-            self.track.centerline.spline.calc_arclength_inaccurate(
-                self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
-            )
-        )
-
-        prog = current_s - self.last_s
-        if prog > 0.9 * self.track.centerline.spline.s[-1]:
-            prog = (self.track.centerline.spline.s[-1] - self.last_s) + current_s
-
-        self.last_s = current_s
-        return prog if not self.collisions[self.ego_idx] else prog - 1.0
+    

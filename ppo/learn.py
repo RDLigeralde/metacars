@@ -8,7 +8,7 @@ from stable_baselines3 import PPO
 from wandb.integration.sb3 import WandbCallback
 import wandb
 
-import yml_utils as yml
+from utils import get_cfg_dicts
 import argparse
 import os
 
@@ -33,9 +33,9 @@ def train(
         callback = None
     
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
-
+    render_mode = env_args.pop('render_mode')
     def make_env():
-        base = gym.make('ppo:f1tenth-v0-dr', config=env_args)
+        base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
         return F110Ego(base)
 
     num_envs = env_args.pop('num_envs')
@@ -73,6 +73,8 @@ def train(
     if run:
         run.finish()
 
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -80,7 +82,7 @@ def main():
     )
     args = parser.parse_args()
 
-    env_args, ppo_args, train_args, log_args = yml.get_cfg_dicts(args.config)
+    env_args, ppo_args, train_args, log_args = get_cfg_dicts(args.config)
     yml_name = os.path.basename(args.config)
     train(
         env_args=env_args,
