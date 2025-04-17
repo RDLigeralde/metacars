@@ -1,6 +1,7 @@
 from rl_env import F110Ego
 import gymnasium as gym
 
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
@@ -34,9 +35,16 @@ def train(
     
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
     render_mode = env_args.pop('render_mode')
+
     def make_env():
         base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
         return F110Ego(base)
+    
+    recurrent_args = ppo_args.pop('recurrent')
+    recurrent, vec_type = recurrent_args['use'], recurrent_args['type']
+    ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
+    vec_env_cls = SubprocVecEnv if vec_type == 'subproc' else DummyVecEnv
+    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
 
     num_envs = env_args.pop('num_envs')
     if num_envs == 1:
@@ -44,19 +52,18 @@ def train(
     elif num_envs > 1:
         env = make_vec_env(
             make_env,
-            n_envs=num_envs
+            n_envs=num_envs,
+            vec_env_cls=vec_env_cls
         )
     else:
         num_envs = os.cpu_count()
         env = make_vec_env(
             make_env,
-            n_envs=num_envs
+            n_envs=num_envs,
+            vec_env_cls=vec_env_cls
         )
 
-    recurrent = ppo_args.pop('recurrent')
-    ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
-    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
-
+    init_path = ppo_args.pop('init_path')
     ppo = ppo_type(
         policy=policy,
         env=env,
@@ -64,6 +71,9 @@ def train(
         **ppo_args,
         verbose=1
     )
+
+    if init_path:
+        ppo.load(init_path)
 
     ppo.learn(
         **train_args,

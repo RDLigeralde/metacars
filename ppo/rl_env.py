@@ -32,7 +32,7 @@ class F110Ego(gym.Wrapper):
         self.opp_idxs = [i for i in range(self.num_agents) if i != self.ego_idx]
         self.opps = opps if opps else [OpponentDriver()] * (self.num_agents - 1)
 
-        self.render_mode = env.render_mode
+        # self.render_mode = env.render_mode
 
     def step(self, action: np.ndarray):
         """Steps using provided action + opponent policies"""

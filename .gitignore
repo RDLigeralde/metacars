@@ -170,8 +170,10 @@ cython_debug/
 #.idea/
 *.zip
 
+# weights and other training files
 **/maps/*/
-
 **/runs/*
 **/wandb/*
 **/models/*
+*.pth
+*.onnx

@@ -4,10 +4,14 @@ import numpy as np
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
+import torch
 
 from utils import get_cfg_dicts
 import argparse
 import time
+
+
+from f1tenth_gym.envs.f110_env import F110Env
 
 def evaluate(
     model_path: str,
@@ -19,15 +23,17 @@ def evaluate(
 ):
     """Logs per-episode metrics over n_episodes."""
     env_args, ppo_args, _, _ = get_cfg_dicts(config_path)
-    render_mode = env_args.pop('render_mode')
+    render_mode = 'human' if render else None
     
-    env = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
-    env = F110Ego(env)
+    env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
     ego_idx = env.unwrapped.ego_idx
     
-    recurrent = ppo_args.pop('recurrent')
+    recurrent = ppo_args.pop('recurrent')['use']
+    ppo_args.pop('init_path')
+    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     model_class = RecurrentPPO if recurrent else PPO
-    model = model_class.load(model_path)
+    model = model_class(policy, env, **ppo_args)
+    model.policy.load_state_dict(torch.load(model_path))
     
     episode_rewards = []
     episode_lengths = []
