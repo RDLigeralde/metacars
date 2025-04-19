@@ -3,7 +3,7 @@ world:
   map: levine # either single map or dir to be sampled from
   num_agents: 1
   num_envs:
-    count: 24 # set -1 to use number of cpu cores
+    count: 1 # set -1 to use number of cpu cores
     type: subproc # subproc or dummy
   num_beams: 36 # number of lidar beams
   timestep: 0.01
@@ -42,7 +42,7 @@ ppo_params:
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.1
+  clip_range: 0.2
   clip_range_vf: null
   normalize_advantage: True
   ent_coef: 0.0
@@ -59,5 +59,5 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: True
-  project_name: f1tenth_ppo # set null to disable wandb
+  log_tensorboard: False
+  project_name: null # set null to disable wandb

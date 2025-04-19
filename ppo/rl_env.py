@@ -32,7 +32,8 @@ class F110Ego(gym.Wrapper):
         self.opp_idxs = [i for i in range(self.num_agents) if i != self.ego_idx]
         self.opps = opps if opps else [OpponentDriver()] * (self.num_agents - 1)
 
-        # self.render_mode = env.render_mode
+        # reward scaling
+        self.r_max = self.env.unwrapped.config['params']['v_max'] * self.env.unwrapped.timestep # max distance that can be traveled in one step call
 
     def step(self, action: np.ndarray):
         """Steps using provided action + opponent policies"""
@@ -67,10 +68,10 @@ class F110Ego(gym.Wrapper):
 
         prog = current_s - self.last_s
         if prog > 0.9 * self.track.centerline.spline.s[-1]:
-            prog = (self.track.centerline.spline.s[-1] - self.last_s) + current_s
+            prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
 
         self.last_s = current_s
-        return prog if not self.collisions[self.ego_idx] else prog - 1.0
+        return prog / self.r_max if not self.collisions[self.ego_idx] else -1.0
 
 class F110EnvDR(F110Env):
     def __init__(

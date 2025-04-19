@@ -18,17 +18,25 @@ def evaluate(
     config_path: str,
     n_episodes: int = 10,
     render: bool = True,
+    make_video: bool = False,
     deterministic: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    MAX_EPISODE_LENGTH: int = 1000 # 10 real seconds
 ):
     """Logs per-episode metrics over n_episodes."""
     env_args, ppo_args, _, _ = get_cfg_dicts(config_path)
-    render_mode = 'human' if render else None
+    if make_video:
+        render_mode = "rgb_array"
+    elif render:
+        render_mode = "human"
+    else:
+        render_mode = "none"
     
     env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
+    env = gym.wrappers.RecordVideo(env, f"video_{time.time()}")
     ego_idx = env.unwrapped.ego_idx
     
-    recurrent = ppo_args.pop('recurrent')['use']
+    recurrent = ppo_args.pop('recurrent')
     ppo_args.pop('init_path')
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     model_class = RecurrentPPO if recurrent else PPO
@@ -113,37 +121,26 @@ def evaluate(
             print(f"  Average time before crash: {np.mean(crashtimes):.2f} ± {np.std(crashtimes):.2f}s")
     
     env.close()
-    
-    return {
-        'rewards': episode_rewards,
-        'steps': episode_lengths,
-        'durations': episode_durations,
-        'laptimes': laptimes,
-        'crashtimes': crashtimes,
-        'completion_rate': laps/n_episodes,
-        'crash_rate': failures/n_episodes,
-        'avg_reward': np.mean(episode_rewards),
-        'avg_steps': np.mean(episode_lengths),
-        'avg_duration': np.mean(episode_durations),
-        'fastest_lap': np.min(laptimes) if laptimes else None
-    }
 
 def main():
     parser = argparse.ArgumentParser(description='Evaluate a trained PPO model in F1TENTH environment')
     parser.add_argument('--model', type=str, required=True, help='Path to the trained model')
     parser.add_argument('--config', type=str, required=True, help='Path to the config file used for training')
     parser.add_argument('--episodes', type=int, default=10, help='Number of episodes to evaluate')
+    parser.add_argument('--video', action='store_true', help='Record video of the evaluation (requires --no-render)')
     parser.add_argument('--no-render', action='store_true', help='Disable rendering')
     parser.add_argument('--stochastic', action='store_true', help='Use stochastic actions')
     parser.add_argument('--quiet', action='store_true', help='Reduce output verbosity')
     
     args = parser.parse_args()
-    
+
+    args.render = not args.no_render and not args.video
     evaluate(
         model_path=args.model,
         config_path=args.config,
         n_episodes=args.episodes,
         render=not args.no_render,
+        make_video=args.video,
         deterministic=not args.stochastic,
         verbose=not args.quiet
     )
