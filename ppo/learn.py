@@ -1,4 +1,4 @@
-from rl_env import F110Ego
+from rl_env import F110Ego, F110EnvDR
 import gymnasium as gym
 
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv

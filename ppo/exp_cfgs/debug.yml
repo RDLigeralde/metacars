@@ -1,10 +1,11 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from
+  map: levine # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 1 # set -1 to use number of cpu cores
     type: subproc # subproc or dummy
+  num_obstacles: 1 # spawns obstacles in range [0, num_obstacles]
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -15,6 +16,9 @@ world:
   render_mode: null # set null to disable rendering: only for single env eval / debugging
 
 car:
+  # dr_param_ex:
+  #  min: x
+  #  max: y
   mu: 1.0489
   C_Sf: 4.718
   C_Sr: 5.4562
