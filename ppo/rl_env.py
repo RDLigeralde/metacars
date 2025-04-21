@@ -1,5 +1,5 @@
-from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory
-from f1tenth_gym.utils import find_track_dir
+from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory, find_track_dir
+# from f1tenth_gym.envsutils import find_track_dir
 
 from f1tenth_gym.envs import F110Env
 import gymnasium as gym
@@ -7,6 +7,7 @@ import numpy as np
 
 from typing import List
 import os
+import cv2
 
 class OpponentDriver:
     def __init__(self, **kwargs):
@@ -129,6 +130,9 @@ class F110EnvDR(F110Env):
         centerline_file = os.path.join(track_dir, f"{track}_centerline.csv")
         return np.loadtxt(centerline_file, delimiter=',').astype(np.float32)
 
+    def _update_map_from_track(self):
+        self.sim.set_map(self.track)
+
     def reset(self, seed=None, options=None):
         """resets agents, randomizes params"""
         if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
@@ -144,15 +148,20 @@ class F110EnvDR(F110Env):
             self.update_map(config['map'])
             self.centerline = self._update_centerline(config['map'])
 
+
+        # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
+        self.update_map(config['map'])
         for _ in range(self.num_obstacles):
             self._spawn_obstacle()
-        
+        self._update_map_from_track()
+        # print(type(self.renderer))
+        # self.renderer.update_occupancy(self.track)
         return super().reset(seed=seed, options=options)
 
     def _spawn_obstacle(
         self, 
         room=10, 
-        r_min=0.01,
+        r_min=0.05, # changed so that obstacle's radius is always at least one cell
         margin=0.75
     ):
         """
@@ -164,9 +173,9 @@ class F110EnvDR(F110Env):
             r_min (float): minimum obstacle size
             margin (float): how much track width to leave on either side of the circle
         """
-        ego_x, ego_y, _ = self.poses_x[self.ego_idx], self.poses_y[self.ego_idx], self.poses_yaw[self.ego_idx]
+        ego_x, ego_y = self.start_xs[self.ego_idx], self.start_ys[self.ego_idx] #, self.poses_yaw[self.ego_idx]
         pt = np.array([ego_x, ego_y])
-        _, _, _, n_idx = nearest_point_on_trajectory(pt, self.centerline[:, :2])
+        _, _, _, n_idx = nearest_point_on_trajectory(pt.astype(np.float64), self.centerline[:, :2].astype(np.float64))
 
         # deletes indices in B_r(pt) from selection pool
         # TODO: idk if these checks are necessary,
@@ -192,10 +201,52 @@ class F110EnvDR(F110Env):
     def _draw_circle(self, x, y, r):
         """draws circle on the occupancy grid"""
         scale = self.track.spec.resolution # conversion faactor pixel -> m
-        h, w = self.track.occupancy_map.shape * scale
-        Y, X = np.ogrid[:h, :w] 
-        mask = np.sqrt((X - x) ** 2 + (Y - y) ** 2) <= r # points in circle
-        self.track.occupancy_map[mask] = 255.0
+        ox, oy, yaw = self.track.spec.origin
+        h, w = self.track.occupancy_map.shape# * scale
+
+        # h *= scale
+        # w *= scale
+        if r < 0.0:
+            r = 0.0
+        # print(x, y, r)
+        r = int(r / scale)
+        dx = x - ox
+        dy = y - oy
+        c = np.cos(-yaw)
+        s = np.sin(-yaw)
+        x = c * dx - s * dy
+        y = s * dx + c * dy
+        x = int(x / scale) 
+        y = int(y / scale)
+        # print(x, y, r)
+        # Y, X = np.ogrid[:h, :w] 
+        # mask = np.sqrt((X - x) ** 2 + (Y - y) ** 2) <= r # points in circle
+        # self.track.occupancy_map[mask] = 255.0
+        self.track.occupancy_map = cv2.circle(self.track.occupancy_map, (x, y), r, 0.0, -1)
+        # if r > 1.0:
+        #     print(f'saving images, ({x}, {y}, {r})')
+        #     cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/grid.png', self.track.occupancy_map)
+
+    def render(self, mode="human"):
+        """
+        Renders the environment with pyglet. Use mouse scroll in the window to zoom in/out, use mouse click drag to pan. Shows the agents, the map, current fps (bottom left corner), and the race information near as text.
+
+        Args:
+            mode (str, default='human'): rendering mode, currently supports:
+                'human': slowed down rendering such that the env is rendered in a way that sim time elapsed is close to real time elapsed
+                'human_fast': render as fast as possible
+
+        Returns:
+            None
+        """
+        # NOTE: separate render (manage render-mode) from render_frame (actual rendering with pyglet)
+        # print('rendering!')
+        if self.render_mode not in self.metadata["render_modes"]:
+            return
+        # update to the most recent occupancy grid
+        # self.renderer.update_occupancy(self.track)
+        self.renderer.update(state=self.render_obs)
+        return self.renderer.render()
 
 class F110EgoDR(F110Ego):
     def __init__(

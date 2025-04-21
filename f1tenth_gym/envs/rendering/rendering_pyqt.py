@@ -191,6 +191,29 @@ class PyQtEnvRenderer(EnvRenderer):
         elif self.render_mode == "rgb_array":
             self.exporter = ImageExporter(self.canvas)
 
+    def update_occupancy(self, track: Track):
+        self.canvas.clear()
+        # load map image
+        original_img = track.occupancy_map
+
+        # convert shape from (W, H) to (W, H, 3)
+        track_map = np.stack([original_img, original_img, original_img], axis=-1)
+
+        # rotate and flip to match the track orientation
+        track_map = np.rot90(track_map, k=1)  # rotate clockwise
+        track_map = np.flip(track_map, axis=0)  # flip vertically
+
+        self.image_item = pg.ImageItem(track_map)
+        # Example: Transformed display of ImageItem
+        tr = QtGui.QTransform()  # prepare ImageItem transformation:
+        # Translate image by the origin of the map
+        tr.translate(self.map_origin[0], self.map_origin[1])
+        # Scale image by the resolution of the map
+        tr.scale(self.map_resolution, self.map_resolution)
+        self.image_item.setTransform(tr)
+        self.canvas.addItem(self.image_item)
+
+
     def update(self, state: dict) -> None:
         """
         Update the simulation state to be rendered.

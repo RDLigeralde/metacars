@@ -134,6 +134,10 @@ class PygameEnvRenderer(EnvRenderer):
             self.follow_agent_flag: bool = False
             self.agent_to_follow: int = None
 
+    
+    def update_occupancy(self, track):
+        pass ## we usually render with pyqt so don't worry about this for now
+
     def update(self, state: dict) -> None:
         """
         Update the simulation state to be rendered.

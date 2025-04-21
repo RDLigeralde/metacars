@@ -6,6 +6,7 @@ from typing import Optional, Any
 
 import numpy as np
 import yaml
+# from ..track import Track
 
 
 @dataclass
@@ -98,6 +99,13 @@ class EnvRenderer(ABC):
         state : Any
             state to be rendered, e.g. a list of vehicle states
         """
+        raise NotImplementedError()
+    
+    @abstractmethod
+    def update_occupancy(self, track):
+        '''
+        Update the map occupancy grid if generating obstacles around the track
+        '''
         raise NotImplementedError()
 
     @abstractmethod
