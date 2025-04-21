@@ -154,7 +154,10 @@ class F110EnvDR(F110Env):
         for _ in range(self.num_obstacles):
             self._spawn_obstacle()
         self._update_map_from_track()
-        # print(type(self.renderer))
+        # if r > 1.0:
+        #     print(f'saving images, ({x}, {y}, {r})')
+        cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/grid_track.png', self.track.occupancy_map)
+        cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/sim_track.png', self.sim.agents[0].scan_simulator.map_img)
         # self.renderer.update_occupancy(self.track)
         return super().reset(seed=seed, options=options)
 
