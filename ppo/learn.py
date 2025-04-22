@@ -13,6 +13,7 @@ import wandb
 from utils import get_cfg_dicts
 import argparse
 import os
+from time import gmtime, strftime
 
 def train(
     env_args: dict,
@@ -22,6 +23,7 @@ def train(
     yml_name: str
 ):
     model_save_freq = train_args.pop('save_interval')
+    # print(model_save_freq)
     if log_args['project_name']:
         run = wandb.init(
             project=log_args['project_name'],

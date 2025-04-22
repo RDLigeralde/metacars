@@ -1,11 +1,11 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from in domain randomization
+  map: race3 # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 1 # set -1 to use number of cpu cores
     type: subproc # subproc or dummy
-  num_obstacles: 1 # spawns obstacles in range [0, num_obstacles]
+  num_obstacles: 3 # spawns obstacles in range [0, num_obstacles]
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -64,4 +64,4 @@ train_params:
 
 log:
   log_tensorboard: False
-  project_name: obstacles_test # set null to disable wandb
+  project_name: obstacles_test_race3 # set null to disable wandb
