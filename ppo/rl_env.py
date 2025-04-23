@@ -247,6 +247,7 @@ class F110EnvDR(F110Env):
         if self.render_mode not in self.metadata["render_modes"]:
             return
         # update to the most recent occupancy grid
+        # print('rendering')
         # self.renderer.update_occupancy(self.track)
         self.renderer.update(state=self.render_obs)
         return self.renderer.render()

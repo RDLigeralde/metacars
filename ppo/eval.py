@@ -33,7 +33,9 @@ def evaluate(
         render_mode = "none"
     
     env = gym.make('ppo.rl_env:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
-    env = gym.wrappers.RecordVideo(env, f"video_{time.time()}")
+    # env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
+    if render_mode == "rgb_array":
+        env = gym.wrappers.RecordVideo(env, f"video_{time.time()}")
     ego_idx = env.unwrapped.ego_idx
     
     recurrent = ppo_args.pop('recurrent')
@@ -64,7 +66,7 @@ def evaluate(
         
         start_time = time.time()
         
-        while not done:
+        while not done and episode_steps <= MAX_EPISODE_LENGTH:
             if recurrent:
                 action, lstm_states = model.predict(
                     obs, 

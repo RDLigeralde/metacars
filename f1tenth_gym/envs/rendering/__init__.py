@@ -3,7 +3,7 @@ import os
 from typing import Any, Optional
 
 from .renderer import RenderSpec, EnvRenderer
-# from ..track import Track This is due to a circular import
+# from ..track import Track #This is due to a circular import
 
 
 def make_renderer(
@@ -31,7 +31,6 @@ def make_renderer(
     """
     cfg_file = pathlib.Path(__file__).parent.absolute() / "rendering.yaml"
     render_spec = RenderSpec.from_yaml(cfg_file)
-
     if render_spec.render_type == "pygame":
         from .rendering_pygame import PygameEnvRenderer as EnvRenderer
     elif render_spec.render_type == "pyqt6":

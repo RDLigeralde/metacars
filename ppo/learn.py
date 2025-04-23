@@ -1,4 +1,5 @@
 from rl_env import F110Ego, F110EnvDR
+from f1tenth_gym.envs import F110Env
 import gymnasium as gym
 
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
@@ -52,6 +53,8 @@ def train(
     def make_env():
         base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
         return F110Ego(base)
+        # base = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
+        # return F110Env(base)
     
     recurrent = ppo_args.pop('recurrent')
     vec_args = env_args.pop('num_envs')

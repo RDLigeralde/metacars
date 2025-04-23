@@ -613,6 +613,15 @@ class F110Env(gym.Env):
         action = np.zeros((self.num_agents, 2))
         obs, _, _, _, info = self.step(action)
 
+        ## updated to support changing maps, create new renederer with most up to date info
+        self.renderer, self.render_spec = make_renderer(
+            params=self.params,
+            track=self.track,
+            agent_ids=self.agent_ids,
+            render_mode=self.render_mode,
+            render_fps=self.metadata["render_fps"],
+        )
+
         return obs, info
 
     def update_map(self, map_name: str):

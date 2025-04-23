@@ -192,7 +192,7 @@ class PyQtEnvRenderer(EnvRenderer):
             self.exporter = ImageExporter(self.canvas)
 
     def update_occupancy(self, track: Track):
-        self.canvas.clear()
+        # self.canvas.clear()
         # load map image
         original_img = track.occupancy_map
 
@@ -212,6 +212,21 @@ class PyQtEnvRenderer(EnvRenderer):
         tr.scale(self.map_resolution, self.map_resolution)
         self.image_item.setTransform(tr)
         self.canvas.addItem(self.image_item)
+
+        # if self.render_spec.focus_on:
+        #     self.active_map_renderer = "car"
+        #     self.follow_agent_flag: bool = True
+        #     self.agent_to_follow: int = self.agent_ids.index(self.render_spec.focus_on)
+        # else:
+        #     self.active_map_renderer = "map"
+        #     self.follow_agent_flag: bool = False
+        #     self.agent_to_follow: int = None
+
+        # if self.render_mode in ["human", "human_fast"]:
+        #     signal.signal(signal.SIGINT, signal.SIG_DFL)
+        #     self.window.show()
+        # elif self.render_mode == "rgb_array":
+        #     self.exporter = ImageExporter(self.canvas)
 
 
     def update(self, state: dict) -> None:
