@@ -154,18 +154,13 @@ class F110EnvDR(F110Env):
         for _ in range(self.num_obstacles):
             self._spawn_obstacle()
         self._update_map_from_track()
-        # if r > 1.0:
-        #     print(f'saving images, ({x}, {y}, {r})')
-        cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/grid_track.png', self.track.occupancy_map)
-        cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/sim_track.png', self.sim.agents[0].scan_simulator.map_img)
-        # self.renderer.update_occupancy(self.track)
         return super().reset(seed=seed, options=options)
 
     def _spawn_obstacle(
         self, 
         room=10, 
-        r_min=0.05, # changed so that obstacle's radius is always at least one cell
-        margin=0.75
+        r_min=0.2,
+        margin=0.4
     ):
         """
         spawns a random box on track room away from ego
@@ -191,13 +186,15 @@ class F110EnvDR(F110Env):
         xc, yc = self.centerline[np.random.choice(idxs),:2]
         wl, wr = self.centerline[np.random.choice(idxs),2:4] # track width at (xc, yc)
         s, _ = self.track.centerline.spline.calc_arclength_inaccurate(xc, yc)
-        ey = np.random.uniform(-wl, wr)
+        ey = np.random.uniform(-wr, wl)
+        xc, yc, _ = self.track.frenet_to_cartesian(s, ey, 0.0)
 
         # select appropriate radius using track width and ey
         if ey < 0: # leave RHS clear
-            r_max = wr + np.abs(ey) - margin
+            r_max = wr - np.abs(ey) - margin
         else: # leave LHS clear
             r_max = wl - np.abs(ey) - margin
+        r_max = max(r_min, r_max) # to ensure nonnegative
         r = np.random.uniform(r_min, r_max)
         self._draw_circle(xc, yc, r)
 
@@ -205,13 +202,8 @@ class F110EnvDR(F110Env):
         """draws circle on the occupancy grid"""
         scale = self.track.spec.resolution # conversion faactor pixel -> m
         ox, oy, yaw = self.track.spec.origin
-        h, w = self.track.occupancy_map.shape# * scale
-
-        # h *= scale
-        # w *= scale
         if r < 0.0:
             r = 0.0
-        # print(x, y, r)
         r = int(r / scale)
         dx = x - ox
         dy = y - oy
@@ -221,14 +213,7 @@ class F110EnvDR(F110Env):
         y = s * dx + c * dy
         x = int(x / scale) 
         y = int(y / scale)
-        # print(x, y, r)
-        # Y, X = np.ogrid[:h, :w] 
-        # mask = np.sqrt((X - x) ** 2 + (Y - y) ** 2) <= r # points in circle
-        # self.track.occupancy_map[mask] = 255.0
         self.track.occupancy_map = cv2.circle(self.track.occupancy_map, (x, y), r, 0.0, -1)
-        # if r > 1.0:
-        #     print(f'saving images, ({x}, {y}, {r})')
-        #     cv2.imwrite('/Users/bryanalfaro/Documents/Problem_Sets/f1_final/f1tenth_gym/ppo/grid.png', self.track.occupancy_map)
 
     def render(self, mode="human"):
         """

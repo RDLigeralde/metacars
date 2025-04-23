@@ -21,7 +21,7 @@ def evaluate(
     make_video: bool = False,
     deterministic: bool = True,
     verbose: bool = True,
-    MAX_EPISODE_LENGTH: int = 1000 # 10 real seconds
+    MAX_EPISODE_LENGTH: int = 2000#1000 # 10 real seconds
 ):
     """Logs per-episode metrics over n_episodes."""
     env_args, ppo_args, _, _ = get_cfg_dicts(config_path)
@@ -42,6 +42,8 @@ def evaluate(
     ppo_args.pop('init_path')
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     model_class = RecurrentPPO if recurrent else PPO
+    # print(recurrent)
+    # model = model_class.load(model_path, env)
     model = model_class(policy, env, **ppo_args)
     model.policy.load_state_dict(torch.load(model_path))
     
@@ -66,7 +68,7 @@ def evaluate(
         
         start_time = time.time()
         
-        while not done and episode_steps <= MAX_EPISODE_LENGTH:
+        while not done: #and episode_steps <= MAX_EPISODE_LENGTH:
             if recurrent:
                 action, lstm_states = model.predict(
                     obs, 
