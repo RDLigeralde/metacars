@@ -1,13 +1,16 @@
 from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory, find_track_dir
+from scipy.interpolate import CubicSpline
 # from f1tenth_gym.envsutils import find_track_dir
-
+from f1tenth_gym.envs.rendering import make_renderer
 from f1tenth_gym.envs import F110Env
 import gymnasium as gym
 import numpy as np
 
+
 from typing import List
 import os
 import cv2
+import time
 
 class OpponentDriver:
     def __init__(self, **kwargs):
@@ -110,6 +113,27 @@ class F110EnvDR(F110Env):
         config['params'] = self._sample_dict(self.params_input)
         super().__init__(config, render_mode, **kwargs)
         self.centerline = self._update_centerline(config['map'])
+        raceline = self._update_raceline(config['map'])
+        # self.vspline = self._get_velocity_spline(raceline)
+        self.last_action = np.zeros((self.num_agents, 2))
+        self.stag_count = 0 #np.zeros((self.num_agents,))
+        self.total_prog = 0 #np.zeros((self.num_agents,))
+
+        # print(self.action_space)
+
+    def _get_velocity_spline(self, raceline_info):
+        sv_values = []
+        for i in range(raceline_info.shape[0]):
+            x = raceline_info[i, 1]
+            y = raceline_info[i, 2]
+            sv_values.append([self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0], 
+                              raceline_info[i, 5]])
+        sv_values = np.array(sv_values)
+        # print(sv_values)
+        sv_values = sv_values[sv_values[:, 0].argsort()]
+        ## noticed that last value repeats
+        sv_values = sv_values[:-1]
+        return CubicSpline(sv_values[:,0], sv_values[:,1])
 
     def _sample_dict(self, params: dict):
         """Sample parameters for domain randomization"""
@@ -121,6 +145,15 @@ class F110EnvDR(F110Env):
                 pcopy[key] = os.path.join(self.config_input['map'], np.random.choice(self.tracks))
         return pcopy
 
+    def _update_raceline(self, track):
+        """
+        sets up [x, y, width_left, width_right] centerline attr for current track:
+        used to ensure obstacles leave room for ego
+        """
+        track_dir = find_track_dir(track)
+        centerline_file = os.path.join(track_dir, f"{track}_raceline.csv")
+        return np.loadtxt(centerline_file, delimiter=';').astype(np.float32)
+    
     def _update_centerline(self, track):
         """
         sets up [x, y, width_left, width_right] centerline attr for current track:
@@ -133,6 +166,169 @@ class F110EnvDR(F110Env):
     def _update_map_from_track(self):
         self.sim.set_map(self.track)
 
+    ## NOTE: a lot of these functions are implemented in a way that implicityl assumes 1 agent
+    def step(self, action):
+        """
+        Step function for the gym env
+
+        Args:
+            action (np.ndarray(num_agents, 2))
+
+        Returns:
+            obs (dict): observation of the current step
+            reward (float, default=self.timestep): step reward, currently is physics timestep
+            done (bool): if the simulation is done
+            info (dict): auxillary information dictionary
+        """
+
+        # call simulation step
+        self.sim.step(action)
+
+        # observation
+        obs = self.observation_type.observe()
+
+        # times
+        self.current_time = self.current_time + self.timestep
+
+        # update data member
+        self._update_state()
+
+        # rendering observation
+        self.render_obs = {
+            "ego_idx": self.sim.ego_idx,
+            "poses_x": self.sim.agent_poses[:, 0],
+            "poses_y": self.sim.agent_poses[:, 1],
+            "poses_theta": self.sim.agent_poses[:, 2],
+            "steering_angles": self.sim.agent_steerings,
+            "lap_times": self.lap_times,
+            "lap_counts": self.lap_counts,
+            "collisions": self.sim.collisions,
+            "sim_time": self.current_time,
+        }
+
+        # check done
+        done, toggle_list = self._check_done()
+        truncated = False
+        info = {"checkpoint_done": toggle_list}
+
+        # calc reward
+        reward, timeout = self._get_reward(action)
+        done = done or timeout
+        info['timeout'] = int(done) # 0/1 for T/F
+        info['total_progress'] = self.total_prog
+
+        return obs, reward, done, truncated, info
+
+
+    def _get_reward(self, action):
+        """
+        Get the reward for the current step
+        action - np.array (num_agents, 2)
+        """
+        # reward for progress compared to last step - imported from base environment
+        # penalty for each crashed agent - imported from base environment
+        # penalty for norm of action differences from last time step - NEW
+        # stagnation penalty - every timestep, add a penalty if we've moved below a certain amount - NEW
+        # ^ for above, will also call an episode termination if we've incurred this penalty consecutively
+        # for self.STAG_CUTOFF time steps
+        # penalty for not tracking reference velocities - NEW #TODO: have not added this yet
+        # Purely collaborative reward if more than 1 agent
+
+
+        ACTION_CHANGE_PENALTY = -0.01
+        STAGNATION_PENALTY = -1
+        STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
+        STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout
+        VELOCITY_PENALTY = -0.05
+
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+
+        reward = 0.0
+        timeout = False
+        for i in range(self.num_agents):
+            current_s, _ = (
+                self.track.centerline.spline.calc_arclength_inaccurate(
+                    self.poses_x[i], self.poses_y[i]
+                )
+            )
+
+            prog = current_s - self.last_s[i]
+            if prog > 0.9 * self.track.centerline.spline.s[-1]:
+                prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
+            reward += prog
+            self.total_prog += prog
+
+            if (prog) / self.track.centerline.spline.s[-1] < STAGNATION_CUTOFF:
+                reward += STAGNATION_PENALTY
+                self.stag_count += 1
+                if self.stag_count == STAG_TIMEOUT:
+                    timeout = True
+            else:
+                self.stag_count = 0
+            
+            reward += ACTION_CHANGE_PENALTY * np.linalg.norm(action[i] - self.last_action[i], 2)
+            
+            if self.collisions[i]:
+                reward -= 1.
+            
+            # v_ref = self.vspline(current_s)
+            # reward += VELOCITY_PENALTY * abs(action[i, 1] - v_ref)
+
+            
+
+            self.last_s[i] = current_s
+        return reward, timeout
+
+    def _reset_pos(self, seed=None, options=None):
+        '''
+        Resets the pose (position and orientation) of the car. To be called in reset() and
+        copied over from the base F110Env to handle the few cases where obstacles spawn on top 
+        of the car due to the fact that super.reset() was previously being called AFTER we spawned
+        obtacles
+        '''
+        if seed is not None:
+            np.random.seed(seed=seed)
+        super().reset(seed=seed)
+
+        # reset counters and data members
+        self.current_time = 0.0
+        self.collisions = np.zeros((self.num_agents,))
+        self.num_toggles = 0
+        self.near_start = True
+        self.near_starts = np.array([True] * self.num_agents)
+        self.toggle_list = np.zeros((self.num_agents,))
+
+        # states after reset
+        if options is not None and "poses" in options:
+            poses = options["poses"]
+        else:
+            poses = self.reset_fn.sample()
+
+        assert isinstance(poses, np.ndarray) and poses.shape == (
+            self.num_agents,
+            3,
+        ), "Initial poses must be a numpy array of shape (num_agents, 3)"
+
+        self.start_xs = poses[:, 0]
+        self.start_ys = poses[:, 1]
+        self.start_thetas = poses[:, 2]
+        self.start_rot = np.array(
+            [
+                [
+                    np.cos(-self.start_thetas[self.ego_idx]),
+                    -np.sin(-self.start_thetas[self.ego_idx]),
+                ],
+                [
+                    np.sin(-self.start_thetas[self.ego_idx]),
+                    np.cos(-self.start_thetas[self.ego_idx]),
+                ],
+            ]
+        )
+
+        # call reset to simulator
+        self.sim.reset(poses)
+
     def reset(self, seed=None, options=None):
         """resets agents, randomizes params"""
         if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
@@ -143,18 +339,33 @@ class F110EnvDR(F110Env):
             for k, v in config.items():
                 if k != 'params' and hasattr(self, k):
                     setattr(self, k, v)
+
         
         if self.use_trackgen:
             self.update_map(config['map'])
             self.centerline = self._update_centerline(config['map'])
 
+        self._reset_pos(seed=seed, options=options)
 
         # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
         self.update_map(config['map'])
         for _ in range(self.num_obstacles):
             self._spawn_obstacle()
         self._update_map_from_track()
-        return super().reset(seed=seed, options=options)
+        # get no input observations
+        self.last_action = np.zeros((self.num_agents, 2))
+        self.total_prog = 0
+        obs, _, _, _, info = self.step(self.last_action)
+
+        ## updated to support changing maps, create new renederer with most up to date info
+        # self.renderer, self.render_spec = make_renderer(
+        #     params=self.params,
+        #     track=self.track,
+        #     agent_ids=self.agent_ids,
+        #     render_mode=self.render_mode,
+        #     render_fps=self.metadata["render_fps"],
+        # )
+        return obs, info
 
     def _spawn_obstacle(
         self, 

@@ -6,6 +6,7 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
+from stable_baselines3.common.monitor import Monitor
 
 from stable_baselines3.common.callbacks import CheckpointCallback
 from wandb.integration.sb3 import WandbCallback
@@ -15,6 +16,21 @@ from utils import get_cfg_dicts
 import argparse
 import os
 from time import gmtime, strftime
+
+class CustomWandCallback(WandbCallback):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def _on_step(self) -> bool:
+        # Log custom metric if present
+        if 'total_progress' in self.locals['infos'][0]:
+            progress = self.locals['infos'][0]['total_progress']
+            wandb.log({'custom/total_progress': progress}, step=self.num_timesteps)
+        if 'timeout' in self.locals['infos'][0]:
+            progress = self.locals['infos'][0]['timeout']
+            wandb.log({'custom/timeout': progress}, step=self.num_timesteps)
+
+        return super()._on_step()
 
 def train(
     env_args: dict,
@@ -37,7 +53,7 @@ def train(
             }
         )
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
-        callback = WandbCallback(
+        callback = CustomWandCallback(
             gradient_save_freq=0, 
             model_save_path=f"models/{yml_name}", 
             model_save_freq=model_save_freq,
@@ -52,7 +68,7 @@ def train(
 
     def make_env():
         base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
-        return F110Ego(base)
+        return Monitor(base)
         # base = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
         # return F110Env(base)
     
