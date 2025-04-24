@@ -23,12 +23,15 @@ class CustomWandCallback(WandbCallback):
     
     def _on_step(self) -> bool:
         # Log custom metric if present
-        if 'total_progress' in self.locals['infos'][0]:
-            progress = self.locals['infos'][0]['total_progress']
-            wandb.log({'custom/total_progress': progress}, step=self.num_timesteps)
-        if 'timeout' in self.locals['infos'][0]:
-            progress = self.locals['infos'][0]['timeout']
-            wandb.log({'custom/timeout': progress}, step=self.num_timesteps)
+        for key in self.locals['infos'][0]:
+            if 'custom' in key:
+                wandb.log({key : self.locals['infos'][0][key]}, step=self.num_timesteps)
+        # if 'total_progress' in self.locals['infos'][0]:
+        #     progress = self.locals['infos'][0]['total_progress']
+        #     wandb.log({'custom/total_progress': progress}, step=self.num_timesteps)
+        # if 'timeout' in self.locals['infos'][0]:
+        #     progress = self.locals['infos'][0]['timeout']
+        #     wandb.log({'custom/timeout': progress}, step=self.num_timesteps)
 
         return super()._on_step()
 

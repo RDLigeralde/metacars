@@ -5,7 +5,7 @@ world:
   num_envs:
     count: 1 # set -1 to use number of cpu cores
     type: subproc # subproc or dummy
-  num_obstacles: 5 # spawns obstacles in range [0, num_obstacles]
+  num_obstacles: 10 # spawns obstacles in range [0, num_obstacles]
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -56,12 +56,12 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 5000000
-  save_interval: 1000000
+  total_timesteps: 1000000
+  save_interval: 120000000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: True
   progress_bar: False
 
 log:
   log_tensorboard: True
-  project_name: obstacles_test_race3 # set null to disable wandb
+  project_name: race3_obs # set null to disable wandb

@@ -213,6 +213,7 @@ class PyQtEnvRenderer(EnvRenderer):
         self.image_item.setTransform(tr)
         self.canvas.addItem(self.image_item)
 
+
         # if self.render_spec.focus_on:
         #     self.active_map_renderer = "car"
         #     self.follow_agent_flag: bool = True

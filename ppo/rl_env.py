@@ -114,12 +114,16 @@ class F110EnvDR(F110Env):
         super().__init__(config, render_mode, **kwargs)
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
-        # self.vspline = self._get_velocity_spline(raceline)
+        self.vspline = self._get_velocity_spline(raceline)
         self.last_action = np.zeros((self.num_agents, 2))
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
 
         # print(self.action_space)
+        # for logging
+        self.n_timeouts = 0
+        self.n_crashes = 0
+        self.last_run_progress = 0.0
 
     def _get_velocity_spline(self, raceline_info):
         sv_values = []
@@ -212,10 +216,15 @@ class F110EnvDR(F110Env):
         info = {"checkpoint_done": toggle_list}
 
         # calc reward
-        reward, timeout = self._get_reward(action)
+        reward = self._get_reward(action)
+        # add in new timeout condition after 1 minute
+        timeout = ((self.current_time / self.timestep) >= (60.0 / self.timestep)) 
+        self.n_timeouts += int(timeout) # hope to see this get bigger overtime
         done = done or timeout
-        info['timeout'] = int(done) # 0/1 for T/F
-        info['total_progress'] = self.total_prog
+        self.last_run_progress = self.total_prog if done else self.last_run_progress
+        info['custom/timeouts'] = self.n_timeouts
+        info['custom/most_recent_progress'] = self.last_run_progress # now tracks max total progress at any timestep
+        info['custom/crashes'] = self.n_crashes
 
         return obs, reward, done, truncated, info
 
@@ -231,21 +240,23 @@ class F110EnvDR(F110Env):
         # stagnation penalty - every timestep, add a penalty if we've moved below a certain amount - NEW
         # ^ for above, will also call an episode termination if we've incurred this penalty consecutively
         # for self.STAG_CUTOFF time steps
-        # penalty for not tracking reference velocities - NEW #TODO: have not added this yet
+        # penalty for not tracking reference velocities - NEW
         # Purely collaborative reward if more than 1 agent
 
+        # NOTE: can't make some penalties negative b/c otherwise agent learns to just crash to get a quick
+        # negative reward
 
         ACTION_CHANGE_PENALTY = -0.01
-        STAGNATION_PENALTY = -1
+        STAGNATION_PENALTY = -1.0
         STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
-        STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout
-        VELOCITY_PENALTY = -0.05
+        # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
+        VELOCITY_ERROR_SCALE = 1.0
+        CRASH_PENALTY = -1.0
 
         if not hasattr(self, "last_s"):
             self.last_s = [0.0] * self.num_agents
 
         reward = 0.0
-        timeout = False
         for i in range(self.num_agents):
             current_s, _ = (
                 self.track.centerline.spline.calc_arclength_inaccurate(
@@ -257,28 +268,31 @@ class F110EnvDR(F110Env):
             if prog > 0.9 * self.track.centerline.spline.s[-1]:
                 prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
             reward += prog
-            self.total_prog += prog
+            # want to see this grow during training, stores percentage of track traveleed
+            pcnt = prog / self.track.centerline.spline.s[-1]
+            self.total_prog += pcnt
 
-            if (prog) / self.track.centerline.spline.s[-1] < STAGNATION_CUTOFF:
-                reward += STAGNATION_PENALTY
-                self.stag_count += 1
-                if self.stag_count == STAG_TIMEOUT:
-                    timeout = True
-            else:
-                self.stag_count = 0
+            # if abs(pcnt) > STAGNATION_CUTOFF:
+            #     reward += STAGNATION_PENALTY
+                # self.stag_count += 1
+            # else:
+                # self.stag_count = 0
             
             reward += ACTION_CHANGE_PENALTY * np.linalg.norm(action[i] - self.last_action[i], 2)
             
             if self.collisions[i]:
-                reward -= 1.
+                reward += CRASH_PENALTY
+                self.n_crashes += 1 # hope to see this eventually stagnate in logging
             
-            # v_ref = self.vspline(current_s)
-            # reward += VELOCITY_PENALTY * abs(action[i, 1] - v_ref)
+            v_ref = self.vspline(current_s)
+            # maxes out when v_ref = v_action
+            reward += VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
 
-            
-
+            if abs(action[i, 1]) < 1.0:
+                reward += STAGNATION_PENALTY
             self.last_s[i] = current_s
-        return reward, timeout
+            
+        return reward
 
     def _reset_pos(self, seed=None, options=None):
         '''
@@ -298,6 +312,7 @@ class F110EnvDR(F110Env):
         self.near_start = True
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
+        self.total_prog = 0.0
 
         # states after reset
         if options is not None and "poses" in options:
@@ -325,6 +340,15 @@ class F110EnvDR(F110Env):
                 ],
             ]
         )
+
+        ## makre sure to recalculate track position
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        for i in range(self.num_agents):
+            self.last_s[i], _ = self.track.centerline.spline.calc_arclength_inaccurate(
+                    self.poses_x[i], self.poses_y[i]
+                )
+        
 
         # call reset to simulator
         self.sim.reset(poses)
@@ -354,17 +378,16 @@ class F110EnvDR(F110Env):
         self._update_map_from_track()
         # get no input observations
         self.last_action = np.zeros((self.num_agents, 2))
-        self.total_prog = 0
         obs, _, _, _, info = self.step(self.last_action)
 
         ## updated to support changing maps, create new renederer with most up to date info
-        # self.renderer, self.render_spec = make_renderer(
-        #     params=self.params,
-        #     track=self.track,
-        #     agent_ids=self.agent_ids,
-        #     render_mode=self.render_mode,
-        #     render_fps=self.metadata["render_fps"],
-        # )
+        self.renderer, self.render_spec = make_renderer(
+            params=self.params,
+            track=self.track,
+            agent_ids=self.agent_ids,
+            render_mode=self.render_mode,
+            render_fps=self.metadata["render_fps"],
+        )
         return obs, info
 
     def _spawn_obstacle(
