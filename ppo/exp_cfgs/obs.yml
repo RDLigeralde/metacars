@@ -5,7 +5,7 @@ world:
   num_envs:
     count: 1 # set -1 to use number of cpu cores
     type: subproc # subproc or dummy
-  num_obstacles: 10 # spawns obstacles in range [0, num_obstacles]
+  num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 36 # number of lidar beams
   timestep: 0.01
   observation_config: 
@@ -48,7 +48,7 @@ ppo_params:
   gae_lambda: 0.95
   clip_range: 0.2
   clip_range_vf: null
-  normalize_advantage: True
+  normalize_advantage: False
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
@@ -56,10 +56,10 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 1000000
-  save_interval: 120000000 # set large to only save last policy
+  total_timesteps: 3000000
+  save_interval: 500000 # set large to only save last policy
   log_interval: 1
-  reset_num_timesteps: True
+  reset_num_timesteps: False
   progress_bar: False
 
 log:
