@@ -43,9 +43,9 @@ def evaluate(
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     model_class = RecurrentPPO if recurrent else PPO
     # print(recurrent)
-    # model = model_class.load(model_path, env)
-    model = model_class(policy, env, **ppo_args)
-    model.policy.load_state_dict(torch.load(model_path))
+    model = model_class.load(model_path, env)
+    # model = model_class(policy, env, **ppo_args)
+    # model.policy.load_state_dict(torch.load(model_path))
     
     episode_rewards = []
     episode_lengths = []

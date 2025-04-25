@@ -100,18 +100,23 @@ def train(
         )
 
     init_path = ppo_args.pop('init_path')
-    ppo = ppo_type(
-        policy=policy,
-        env=env,
-        tensorboard_log=tensorboard_log,
-        seed=env_args['seed'],
-        **ppo_args,
-        verbose=1
-    )
-
     if init_path:
-        ppo.load(init_path)
-
+        print(f'Loaded previous model from {init_path}')
+        ppo = ppo_type.load(
+            path=init_path,
+            env=env,
+            tensorboard_log=tensorboard_log,
+            device=ppo_args.get('device', 'cpu')
+        )
+    else:
+        ppo = ppo_type(
+            policy=policy,
+            env=env,
+            tensorboard_log=tensorboard_log,
+            seed=env_args['seed'],
+            **ppo_args,
+            verbose=1
+        )
     ppo.learn(
         **train_args,
         callback=callback

@@ -115,16 +115,32 @@ class F110EnvDR(F110Env):
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
         self.vspline = self._get_velocity_spline(raceline)
+        self.yaw_spline = self._get_yaw_spline(raceline)
         self.last_action = np.zeros((self.num_agents, 2))
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
+
+        # crash penalty for rewards that will gradually get stricter
+        self.crash_penalty = -1.0
+        self.total_timesteps = 0
+
+        self.milestone = 0.25 # percentage progress that will trigger a large positive reward
 
         # print(self.action_space)
         # for logging
         self.n_timeouts = 0
         self.n_crashes = 0
         self.last_run_progress = 0.0
+        self.n_laps = 0
 
+    def _get_yaw_spline(self, raceline_info):
+        data = np.zeros((raceline_info.shape[0], 2))
+        data[:, 0] = raceline_info[:, 0] # s
+        data[:, 1] = raceline_info[:, 3] # yaw
+        data = data[data[:, 0].argsort()]
+        data = data[:-1]
+        return CubicSpline(data[:, 0], data[:, 1])
+    
     def _get_velocity_spline(self, raceline_info):
         sv_values = []
         for i in range(raceline_info.shape[0]):
@@ -193,6 +209,7 @@ class F110EnvDR(F110Env):
 
         # times
         self.current_time = self.current_time + self.timestep
+        self.total_timesteps += 1
 
         # update data member
         self._update_state()
@@ -225,10 +242,21 @@ class F110EnvDR(F110Env):
         info['custom/timeouts'] = self.n_timeouts
         info['custom/most_recent_progress'] = self.last_run_progress # now tracks max total progress at any timestep
         info['custom/crashes'] = self.n_crashes
+        info['custom/num_laps'] = self.n_laps
 
         return obs, reward, done, truncated, info
 
-
+    ACTION_CHANGE_PENALTY = -0.005
+    STAGNATION_PENALTY = -0.1
+    STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
+    # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
+    VELOCITY_ERROR_SCALE = 1.0
+    # CRASH_PENALTY = -1.0
+    HEADING_PENALTY = -1.0 # ended up slowing down training significantly
+    CRASH_PENALTY = -1000
+    PROGRESS_WEIGHT = 1
+    CURRICULUM = int(1e6)
+    MILESTONE_REWARD = 10
     def _get_reward(self, action):
         """
         Get the reward for the current step
@@ -241,17 +269,12 @@ class F110EnvDR(F110Env):
         # ^ for above, will also call an episode termination if we've incurred this penalty consecutively
         # for self.STAG_CUTOFF time steps
         # penalty for not tracking reference velocities - NEW
+        # penalty for being significantly off from reference yaw - NEW (essentially want to prevent turning around)
         # Purely collaborative reward if more than 1 agent
 
         # NOTE: can't make some penalties negative b/c otherwise agent learns to just crash to get a quick
         # negative reward
-
-        ACTION_CHANGE_PENALTY = -0.01
-        STAGNATION_PENALTY = -1.0
-        STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
-        # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
-        VELOCITY_ERROR_SCALE = 1.0
-        CRASH_PENALTY = -1.0
+        self.crash_penalty = -(1 + 9 * np.tanh(self.total_timesteps / self.CURRICULUM)) # gradually grows between 1 and 10
 
         if not hasattr(self, "last_s"):
             self.last_s = [0.0] * self.num_agents
@@ -265,31 +288,44 @@ class F110EnvDR(F110Env):
             )
 
             prog = current_s - self.last_s[i]
-            if prog > 0.9 * self.track.centerline.spline.s[-1]:
-                prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
-            reward += prog
+            # account for lapping
+            if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
+                prog += self.track.centerline.spline.s[-1]
+    
+            # if prog > 0.9 * self.track.centerline.spline.s[-1]:
+            #     prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
+
+            reward += prog * self.PROGRESS_WEIGHT
             # want to see this grow during training, stores percentage of track traveleed
             pcnt = prog / self.track.centerline.spline.s[-1]
             self.total_prog += pcnt
 
+            if self.total_prog > self.milestone:
+                self.milestone += 0.25
+                reward += self.MILESTONE_REWARD
+    
             # if abs(pcnt) > STAGNATION_CUTOFF:
             #     reward += STAGNATION_PENALTY
                 # self.stag_count += 1
             # else:
                 # self.stag_count = 0
-            
-            reward += ACTION_CHANGE_PENALTY * np.linalg.norm(action[i] - self.last_action[i], 2)
+            reward += self.ACTION_CHANGE_PENALTY * np.linalg.norm(action[i] - self.last_action[i], 2)
             
             if self.collisions[i]:
-                reward += CRASH_PENALTY
+                reward += self.crash_penalty
                 self.n_crashes += 1 # hope to see this eventually stagnate in logging
             
             v_ref = self.vspline(current_s)
             # maxes out when v_ref = v_action
-            reward += VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
+            reward += self.VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
+
+            # yaw_ref = self.yaw_spline(current_s)
+            # if abs(self.poses_theta[i] - yaw_ref) > np.deg2rad(75):
+            #     reward += HEADING_PENALTY
 
             if abs(action[i, 1]) < 1.0:
-                reward += STAGNATION_PENALTY
+                reward += self.STAGNATION_PENALTY
+            
             self.last_s[i] = current_s
             
         return reward
@@ -313,6 +349,7 @@ class F110EnvDR(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
+        self.milestone = 0.25
 
         # states after reset
         if options is not None and "poses" in options:
@@ -394,7 +431,7 @@ class F110EnvDR(F110Env):
         self, 
         room=10, 
         r_min=0.2,
-        margin=0.4
+        margin=0.6
     ):
         """
         spawns a random box on track room away from ego
@@ -415,22 +452,23 @@ class F110EnvDR(F110Env):
         idxs = np.arange(self.centerline.shape[0])
         close = idxs.take(np.arange(n_idx - room, n_idx + room + 1), mode='wrap')
         idxs = np.delete(idxs, close)
+        rand_idx = np.random.choice(idxs)
 
         # randomly select (s, ey) from remaining indices
-        xc, yc = self.centerline[np.random.choice(idxs),:2]
-        wl, wr = self.centerline[np.random.choice(idxs),2:4] # track width at (xc, yc)
+        xc, yc = self.centerline[rand_idx,:2]
+        wl, wr = self.centerline[rand_idx,2:4] # track width at (xc, yc)
         s, _ = self.track.centerline.spline.calc_arclength_inaccurate(xc, yc)
+        yaw = self.yaw_spline(s)
         ey = np.random.uniform(-wr, wl)
-        xc, yc, _ = self.track.frenet_to_cartesian(s, ey, 0.0)
-
+        dx = -ey * np.cos(yaw)
+        dy = ey * np.cos(yaw)
+        x = xc + dx
+        y = yc + dy
         # select appropriate radius using track width and ey
-        if ey < 0: # leave RHS clear
-            r_max = wr - np.abs(ey) - margin
-        else: # leave LHS clear
-            r_max = wl - np.abs(ey) - margin
+        r_max = (wl + wr - 2 * margin) / 2
         r_max = max(r_min, r_max) # to ensure nonnegative
         r = np.random.uniform(r_min, r_max)
-        self._draw_circle(xc, yc, r)
+        return self._draw_circle(x, y, r)
 
     def _draw_circle(self, x, y, r):
         """draws circle on the occupancy grid"""
@@ -448,6 +486,51 @@ class F110EnvDR(F110Env):
         x = int(x / scale) 
         y = int(y / scale)
         self.track.occupancy_map = cv2.circle(self.track.occupancy_map, (x, y), r, 0.0, -1)
+    
+    def _check_done(self):
+        """
+        Check if the current rollout is done
+
+        Args:
+            None
+
+        Returns:
+            done (bool): whether the rollout is done
+            toggle_list (list[int]): each agent's toggle list for crossing the finish zone
+        """
+
+        # this is assuming 2 agents
+        # TODO: switch to maybe s-based
+        left_t = 2
+        right_t = 2
+
+        poses_x = np.array(self.poses_x) - self.start_xs
+        poses_y = np.array(self.poses_y) - self.start_ys
+        delta_pt = np.dot(self.start_rot, np.stack((poses_x, poses_y), axis=0))
+        temp_y = delta_pt[1, :]
+        idx1 = temp_y > left_t
+        idx2 = temp_y < -right_t
+        temp_y[idx1] -= left_t
+        temp_y[idx2] = -right_t - temp_y[idx2]
+        temp_y[np.invert(np.logical_or(idx1, idx2))] = 0
+
+        dist2 = delta_pt[0, :] ** 2 + temp_y**2
+        closes = dist2 <= 0.1
+        for i in range(self.num_agents):
+            if closes[i] and not self.near_starts[i]:
+                self.near_starts[i] = True
+                self.toggle_list[i] += 1
+            elif not closes[i] and self.near_starts[i]:
+                self.near_starts[i] = False
+                self.toggle_list[i] += 1
+            self.lap_counts[i] = self.toggle_list[i] // 2
+            if self.toggle_list[i] < 4:
+                self.lap_times[i] = self.current_time
+
+        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
+        self.n_laps += int(np.all(self.toggle_list >= 4)) # this is wrong becuse it counts collisions too
+
+        return bool(done), self.toggle_list >= 4
 
     def render(self, mode="human"):
         """
