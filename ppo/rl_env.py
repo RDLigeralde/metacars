@@ -207,6 +207,8 @@ class F110EnvDR(F110Env):
     def _update_map_from_track(self):
         self.sim.set_map(self.track)
 
+    
+
     ## NOTE: a lot of these functions are implemented in a way that implicityl assumes 1 agent
     def step(self, action):
         """
@@ -223,8 +225,8 @@ class F110EnvDR(F110Env):
         """
 
         # call simulation step
-        action *= self.action_range
-        self.sim.step(action)
+        sim_action = action * self.action_range
+        self.sim.step(sim_action)
 
         # observation
         obs = self.observation_type.observe()
@@ -256,6 +258,7 @@ class F110EnvDR(F110Env):
 
         # calc reward
         reward = self._get_reward(action)
+        self.last_action = action
         # add in new timeout condition after 1 minute
         timeout = ((self.current_time / self.timestep) >= (60.0 / self.timestep)) 
         self.n_timeouts += int(timeout) # hope to see this get bigger overtime
@@ -268,7 +271,15 @@ class F110EnvDR(F110Env):
 
         return obs, reward, done, truncated, info
 
-    ACTION_CHANGE_PENALTY = 0.05
+
+    def _sigmoid(self, x):
+        # To get rid of warning
+        if x < -1e3:
+            return 0
+        if x > 1e3:
+            return 1
+        return 1.0 / (1.0 + np.exp(-x))
+    ACTION_CHANGE_PENALTY = -0.05
     STAGNATION_PENALTY = -0.1
     STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
     # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
@@ -334,13 +345,13 @@ class F110EnvDR(F110Env):
                     print(f'staring pose: {self.start_xs[i]}, {self.start_ys[i]}')
                     print(f'{current_s}, {self.last_s[i]}, {self.current_time}, {self.last_checkpoint_time} on fail')
                     raise Exception('div by 0')
-        
-            # if abs(pcnt) > STAGNATION_CUTOFF:
-            #     reward += STAGNATION_PENALTY
-                # self.stag_count += 1
-            # else:
-                # self.stag_count = 0
-            reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
+                
+            # reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
+            
+
+            # rework the action change penalty so that it works its way up from 0 at the start of training
+            # using a sigmoid
+            reward += self.ACTION_CHANGE_PENALTY * self._sigmoid(np.linalg.norm(self.last_action[i] - action[i], 2) - self.CURRICULUM)
         
             if self.collisions[i]:
                 reward += self.crash_penalty
@@ -353,9 +364,10 @@ class F110EnvDR(F110Env):
             # yaw_ref = self.yaw_spline(current_s)
             # if abs(self.poses_theta[i] - yaw_ref) > np.deg2rad(75):
             #     reward += HEADING_PENALTY
-
-            if abs(action[i, 1]) < 1.0:
-                reward += self.STAGNATION_PENALTY
+            # print(action)
+            if np.abs(action[i, 1]) < 1e-3 :
+                # print('stagnating')
+                reward += self.timestep * self.crash_penalty # make stagnating for a second just as bad as crashing
             
             self.last_s[i] = current_s
             
@@ -440,6 +452,8 @@ class F110EnvDR(F110Env):
             self.update_map(config['map'])
             self.centerline = self._update_centerline(config['map'])
 
+        # update laps from last trial
+        self.n_laps += int(self.total_prog)
         self._reset_pos(seed=seed, options=options)
 
         # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
@@ -561,8 +575,12 @@ class F110EnvDR(F110Env):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
 
-        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
-        self.n_laps += int(np.all(self.toggle_list >= 4)) # this is wrong becuse it counts collisions too
+        ## NEW -using self.total_prog to judge laps, will terminate episode after 3 laps
+        done = (self.collisions[self.ego_idx]) or int(self.total_prog) >= 3 # or np.all(self.toggle_list >= 4)
+        # self.n_laps += int(np.all(self.toggle_list >= 4)) # this is wrong becuse it counts collisions too (not sure about this comment)
+
+        
+
 
         return bool(done), self.toggle_list >= 4
 
