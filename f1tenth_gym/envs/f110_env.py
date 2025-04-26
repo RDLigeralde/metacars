@@ -344,7 +344,7 @@ class F110Env(gym.Env):
             "v_switch": 7.319,
             "a_max": 9.51,
             "v_min": -5.0,
-            "v_max": 20.0,
+            "v_max": 7.0,
             "width": 0.55,
             "length": 0.8,
         }
@@ -368,7 +368,7 @@ class F110Env(gym.Env):
             "v_switch": 7.319,
             "a_max": 9.51,
             "v_min": -5.0,
-            "v_max": 20.0,
+            "v_max": 7.0,
             "width": 0.31,
             "length": 0.58,
         }

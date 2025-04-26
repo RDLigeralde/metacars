@@ -1,4 +1,4 @@
-from rl_env import F110Ego
+from rl_env import F110Ego, F110EnvDR
 import gymnasium as gym
 import numpy as np
 
@@ -11,7 +11,7 @@ import argparse
 import time
 
 
-from f1tenth_gym.envs.f110_env import F110Env
+# from f1tenth_gym.envs.f110_env import F110Env
 
 def evaluate(
     model_path: str,
@@ -33,6 +33,7 @@ def evaluate(
         render_mode = "none"
     
     env = gym.make('ppo.rl_env:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
+    # env = F110EnvDR(config=env_args, render_mode=render_mode)
     # env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
     if render_mode == "rgb_array":
         env = gym.wrappers.RecordVideo(env, f"video_{time.time()}")
@@ -44,6 +45,7 @@ def evaluate(
     model_class = RecurrentPPO if recurrent else PPO
     # print(recurrent)
     model = model_class.load(model_path, env)
+    model.set_env(env)
     # model = model_class(policy, env, **ppo_args)
     # model.policy.load_state_dict(torch.load(model_path))
     

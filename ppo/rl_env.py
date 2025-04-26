@@ -39,12 +39,20 @@ class F110Ego(gym.Wrapper):
         self.opp_idxs = [i for i in range(self.num_agents) if i != self.ego_idx]
         self.opps = opps if opps else [OpponentDriver()] * (self.num_agents - 1)
 
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(1,2),
+            dtype=np.float32,
+        )
+
         # reward scaling
         self.r_max = self.env.unwrapped.config['params']['v_max'] * self.env.unwrapped.timestep # max distance that can be traveled in one step call
 
     def step(self, action: np.ndarray):
         """Steps using provided action + opponent policies"""
         actions = np.zeros((self.num_agents, 2))
+        actions *= np.array([self.env.unwrapped.params['s_max'], self.env.unwrapped.params['v_max']])
         actions[self.ego_idx] = action
 
         opp_idx = 0
@@ -96,7 +104,7 @@ class F110EnvDR(F110Env):
         self.config_input = config
         self.params_input = config['params']
         self.num_obstacles = config["num_obstacles"]
-        
+
         if os.path.exists(config['map']) and os.path.isdir(config['map']):
             tracks = [d for d in os.listdir(config['map']) if os.path.isdir(os.path.join(config['map'], d))]
         else:
@@ -112,6 +120,17 @@ class F110EnvDR(F110Env):
         config = self._sample_dict(self.config_input)
         config['params'] = self._sample_dict(self.params_input)
         super().__init__(config, render_mode, **kwargs)
+        self.render_mode = render_mode
+
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(1,2),
+            dtype=np.float32,
+        )
+        self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
+
+        
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
         self.vspline = self._get_velocity_spline(raceline)
@@ -132,6 +151,8 @@ class F110EnvDR(F110Env):
         self.n_crashes = 0
         self.last_run_progress = 0.0
         self.n_laps = 0
+        self.last_checkpoint_time = 0.0
+
 
     def _get_yaw_spline(self, raceline_info):
         data = np.zeros((raceline_info.shape[0], 2))
@@ -202,6 +223,7 @@ class F110EnvDR(F110Env):
         """
 
         # call simulation step
+        action *= self.action_range
         self.sim.step(action)
 
         # observation
@@ -246,7 +268,7 @@ class F110EnvDR(F110Env):
 
         return obs, reward, done, truncated, info
 
-    ACTION_CHANGE_PENALTY = -0.005
+    ACTION_CHANGE_PENALTY = 0.05
     STAGNATION_PENALTY = -0.1
     STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
     # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
@@ -291,6 +313,9 @@ class F110EnvDR(F110Env):
             # account for lapping
             if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
                 prog += self.track.centerline.spline.s[-1]
+            # looped backward
+            elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
+                prog -= self.track.centerline.spline.s[-1]
     
             # if prog > 0.9 * self.track.centerline.spline.s[-1]:
             #     prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
@@ -299,25 +324,31 @@ class F110EnvDR(F110Env):
             # want to see this grow during training, stores percentage of track traveleed
             pcnt = prog / self.track.centerline.spline.s[-1]
             self.total_prog += pcnt
-
             if self.total_prog > self.milestone:
                 self.milestone += 0.25
-                reward += self.MILESTONE_REWARD
-    
+                try:
+                    reward += self.MILESTONE_REWARD / (self.current_time - self.last_checkpoint_time)
+                    self.last_checkpoint_time = self.current_time
+                except:
+                    print(f'problem pose: {self.poses_x[i]}, {self.poses_y[i]}')
+                    print(f'staring pose: {self.start_xs[i]}, {self.start_ys[i]}')
+                    print(f'{current_s}, {self.last_s[i]}, {self.current_time}, {self.last_checkpoint_time} on fail')
+                    raise Exception('div by 0')
+        
             # if abs(pcnt) > STAGNATION_CUTOFF:
             #     reward += STAGNATION_PENALTY
                 # self.stag_count += 1
             # else:
                 # self.stag_count = 0
-            reward += self.ACTION_CHANGE_PENALTY * np.linalg.norm(action[i] - self.last_action[i], 2)
-            
+            reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
+        
             if self.collisions[i]:
                 reward += self.crash_penalty
                 self.n_crashes += 1 # hope to see this eventually stagnate in logging
             
-            v_ref = self.vspline(current_s)
+            # v_ref = self.vspline(current_s)
             # maxes out when v_ref = v_action
-            reward += self.VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
+            # reward += self.VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
 
             # yaw_ref = self.yaw_spline(current_s)
             # if abs(self.poses_theta[i] - yaw_ref) > np.deg2rad(75):
@@ -350,6 +381,7 @@ class F110EnvDR(F110Env):
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
         self.milestone = 0.25
+        self.last_checkpoint_time = 0.0
 
         # states after reset
         if options is not None and "poses" in options:
@@ -378,17 +410,19 @@ class F110EnvDR(F110Env):
             ]
         )
 
-        ## makre sure to recalculate track position
+        # call reset to simulator
+        self.sim.reset(poses)
+
+        self.poses_x = self.start_xs
+        self.poses_y = self.start_ys
+
+         ## makre sure to recalculate track position
         if not hasattr(self, "last_s"):
             self.last_s = [0.0] * self.num_agents
         for i in range(self.num_agents):
             self.last_s[i], _ = self.track.centerline.spline.calc_arclength_inaccurate(
                     self.poses_x[i], self.poses_y[i]
                 )
-        
-
-        # call reset to simulator
-        self.sim.reset(poses)
 
     def reset(self, seed=None, options=None):
         """resets agents, randomizes params"""
@@ -514,7 +548,7 @@ class F110EnvDR(F110Env):
         temp_y[idx2] = -right_t - temp_y[idx2]
         temp_y[np.invert(np.logical_or(idx1, idx2))] = 0
 
-        dist2 = delta_pt[0, :] ** 2 + temp_y**2
+        dist2 = delta_pt[0, :] * 2 + temp_y*2
         closes = dist2 <= 0.1
         for i in range(self.num_agents):
             if closes[i] and not self.near_starts[i]:
@@ -569,5 +603,3 @@ class F110EgoDR(F110Ego):
         super().__init__(env, opps)
         self.config_input = config
         self.params_input = config['params']
-
-    
