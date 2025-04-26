@@ -280,7 +280,8 @@ class F110EnvDR(F110Env):
         if x > 1e3:
             return 1
         return 1.0 / (1.0 + np.exp(-x))
-    ACTION_CHANGE_PENALTY = -0.05
+    VEL_ACTION_CHANGE_PENALTY = -0.05
+    STEER_ACTION_CHANGE_PENALTY = -0.5
     STAGNATION_PENALTY = -0.1
     STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
     # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
@@ -357,9 +358,13 @@ class F110EnvDR(F110Env):
 
             # rework the action change penalty so that it works its way up from 0 at the start of training
             # using a sigmoid
-            action_pen = self.ACTION_CHANGE_PENALTY * self._sigmoid(np.linalg.norm(self.last_action[i] - action[i], 2) - self.CURRICULUM)
-            reward += action_pen
-            reward_info['custom/reward_terms/delta_action'] = action_pen
+            steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * self._sigmoid(np.abs(self.last_action[i, 0] - action[i, 0]) - self.CURRICULUM)
+            reward += steer_delta_pen
+            reward_info['custom/reward_terms/delta_steer'] = steer_delta_pen
+
+            vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * self._sigmoid(np.abs(self.last_action[i, 1] - action[i, 1]) - self.CURRICULUM)
+            reward += vel_delta_pen
+            reward_info['custom/reward_terms/delta_v'] = vel_delta_pen
 
             if self.collisions[i]:
                 reward += self.crash_penalty
