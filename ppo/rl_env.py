@@ -257,7 +257,7 @@ class F110EnvDR(F110Env):
         info = {"checkpoint_done": toggle_list}
 
         # calc reward
-        reward = self._get_reward(action)
+        reward, reward_info = self._get_reward(action)
         self.last_action = action
         # add in new timeout condition after 1 minute
         timeout = ((self.current_time / self.timestep) >= (60.0 / self.timestep)) 
@@ -268,6 +268,7 @@ class F110EnvDR(F110Env):
         info['custom/most_recent_progress'] = self.last_run_progress # now tracks max total progress at any timestep
         info['custom/crashes'] = self.n_crashes
         info['custom/num_laps'] = self.n_laps
+        info.update(reward_info)
 
         return obs, reward, done, truncated, info
 
@@ -313,6 +314,7 @@ class F110EnvDR(F110Env):
             self.last_s = [0.0] * self.num_agents
 
         reward = 0.0
+        reward_info = {}
         for i in range(self.num_agents):
             current_s, _ = (
                 self.track.centerline.spline.calc_arclength_inaccurate(
@@ -332,6 +334,7 @@ class F110EnvDR(F110Env):
             #     prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
 
             reward += prog * self.PROGRESS_WEIGHT
+            reward_info['custom/reward_terms/prog'] = prog * self.PROGRESS_WEIGHT
             # want to see this grow during training, stores percentage of track traveleed
             pcnt = prog / self.track.centerline.spline.s[-1]
             self.total_prog += pcnt
@@ -339,23 +342,31 @@ class F110EnvDR(F110Env):
                 self.milestone += 0.25
                 try:
                     reward += self.MILESTONE_REWARD / (self.current_time - self.last_checkpoint_time)
+                    reward_info['custom/reward_terms/milestone'] = self.MILESTONE_REWARD / (self.current_time - self.last_checkpoint_time)
                     self.last_checkpoint_time = self.current_time
                 except:
                     print(f'problem pose: {self.poses_x[i]}, {self.poses_y[i]}')
                     print(f'staring pose: {self.start_xs[i]}, {self.start_ys[i]}')
                     print(f'{current_s}, {self.last_s[i]}, {self.current_time}, {self.last_checkpoint_time} on fail')
                     raise Exception('div by 0')
+            else:
+               reward_info['custom/reward_terms/milestone'] = 0.0 
                 
             # reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
             
 
             # rework the action change penalty so that it works its way up from 0 at the start of training
             # using a sigmoid
-            reward += self.ACTION_CHANGE_PENALTY * self._sigmoid(np.linalg.norm(self.last_action[i] - action[i], 2) - self.CURRICULUM)
-        
+            action_pen = self.ACTION_CHANGE_PENALTY * self._sigmoid(np.linalg.norm(self.last_action[i] - action[i], 2) - self.CURRICULUM)
+            reward += action_pen
+            reward_info['custom/reward_terms/delta_action'] = action_pen
+
             if self.collisions[i]:
                 reward += self.crash_penalty
+                reward_info['custom/reward_terms/collision'] = self.crash_penalty
                 self.n_crashes += 1 # hope to see this eventually stagnate in logging
+            else:
+                reward_info['custom/reward_terms/collision'] = 0.0
             
             # v_ref = self.vspline(current_s)
             # maxes out when v_ref = v_action
@@ -367,11 +378,15 @@ class F110EnvDR(F110Env):
             # print(action)
             if np.abs(action[i, 1]) < 1e-3 :
                 # print('stagnating')
-                reward += self.timestep * self.crash_penalty # make stagnating for a second just as bad as crashing
+                stag_penalty = self.timestep * self.crash_penalty
+                reward += stag_penalty # make stagnating for a second just as bad as crashing
+                reward_info['custom/reward_terms/stagnation'] = stag_penalty
+            else:
+                reward_info['custom/reward_terms/stagnation'] = 0.0
             
             self.last_s[i] = current_s
             
-        return reward
+        return reward, reward_info
 
     def _reset_pos(self, seed=None, options=None):
         '''
