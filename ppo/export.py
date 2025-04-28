@@ -7,6 +7,7 @@ import torch
 
 from utils import get_cfg_dicts
 import argparse
+from rl_env import F110Ego, F110EnvDR
 
 class ONNXPolicy(nn.Module):
     def __init__(self, policy):
@@ -33,13 +34,14 @@ def export_onnx(
 ):
     """saves sb3 policies in ONNX format"""
     env_args, ppo_args, _, _ = get_cfg_dicts(config_path)
-    recurrent = ppo_args.pop('recurrent')['use']
+    print(ppo_args)
+    recurrent = ppo_args.pop('recurrent')
     ppo_args.pop('init_path')
 
     model_class = RecurrentPPO if recurrent else PPO
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
-    env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args)
+    env = gym.make('ppo.rl_env:f1tenth-v0-dr', config=env_args)
     model = model_class(policy, env, **ppo_args)
     model.policy.load_state_dict(torch.load(model_path))
     onnx_model = ONNXPolicy(model.policy)
