@@ -40,7 +40,8 @@ def train(
     ppo_args: dict,
     train_args: dict,
     log_args: dict,
-    yml_name: str
+    yml_name: str,
+    run_name: str,
 ):
     model_save_freq = train_args.pop('save_interval')
     # print(model_save_freq)
@@ -58,7 +59,7 @@ def train(
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
         callback = CustomWandCallback(
             gradient_save_freq=0, 
-            model_save_path=f"models/{yml_name}", 
+            model_save_path=f"models/{yml_name}/{run_name}", 
             model_save_freq=model_save_freq,
             verbose=2
         )
@@ -130,6 +131,7 @@ def main():
     parser.add_argument(
         '--config', type=str, help='Path to the config file'
     )
+    parser.add_argument('--run_name', type=str, help='Name for distinguishing runs')
     args = parser.parse_args()
 
     env_args, ppo_args, train_args, log_args= get_cfg_dicts(args.config)
@@ -139,7 +141,8 @@ def main():
         ppo_args=ppo_args,
         train_args=train_args,
         log_args=log_args,
-        yml_name=os.path.splitext(yml_name)[0]
+        yml_name=os.path.splitext(yml_name)[0],
+        run_name=args.run_name
     )
 
 if __name__ == '__main__':

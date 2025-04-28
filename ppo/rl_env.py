@@ -122,19 +122,21 @@ class F110EnvDR(F110Env):
         super().__init__(config, render_mode, **kwargs)
         self.render_mode = render_mode
 
-        self.action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(1,2),
-            dtype=np.float32,
-        )
+        if config['normalize_input']:
+            print('running with normalized input')
+            self.action_space = gym.spaces.Box(
+                low=-1.0,
+                high=1.0,
+                shape=(1,2),
+                dtype=np.float32,
+            )
         self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
 
         
         self.centerline = self._update_centerline(config['map'])
-        raceline = self._update_raceline(config['map'])
-        self.vspline = self._get_velocity_spline(raceline)
-        self.yaw_spline = self._get_yaw_spline(raceline)
+        # raceline = self._update_raceline(config['map'])
+        # self.vspline = self._get_velocity_spline(raceline)
+        # self.yaw_spline = self._get_yaw_spline(raceline)
         self.last_action = np.zeros((self.num_agents, 2))
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
@@ -143,7 +145,8 @@ class F110EnvDR(F110Env):
         self.crash_penalty = -1.0
         self.total_timesteps = 0
 
-        self.milestone = 0.25 # percentage progress that will trigger a large positive reward
+        self.MILESTONE_INCREMEMENT = 0.1
+        self.milestone = 0.1 # percentage progress that will trigger a large positive reward
 
         # print(self.action_space)
         # for logging
@@ -152,6 +155,7 @@ class F110EnvDR(F110Env):
         self.last_run_progress = 0.0
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
+        print(self.action_space, self.action_range)
 
 
     def _get_yaw_spline(self, raceline_info):
@@ -225,7 +229,11 @@ class F110EnvDR(F110Env):
         """
 
         # call simulation step
-        sim_action = action * self.action_range
+        if self.config_input['normalize_input']:
+            sim_action = action * self.action_range
+        else:
+            sim_action = action
+        # print(sim_action)
         self.sim.step(sim_action)
 
         # observation
@@ -280,18 +288,22 @@ class F110EnvDR(F110Env):
         if x > 1e3:
             return 1
         return 1.0 / (1.0 + np.exp(-x))
-    VEL_ACTION_CHANGE_PENALTY = -0.05
-    STEER_ACTION_CHANGE_PENALTY = -0.5
+    VEL_ACTION_CHANGE_PENALTY = 0 #-0.5
+    STEER_ACTION_CHANGE_PENALTY = 0 #-1.0
     STAGNATION_PENALTY = -0.1
     STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
     # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
-    VELOCITY_ERROR_SCALE = 1.0
-    # CRASH_PENALTY = -1.0
+    VELOCITY_REWARD_SCALE = 0.0
     HEADING_PENALTY = -1.0 # ended up slowing down training significantly
-    CRASH_PENALTY = -1000
-    PROGRESS_WEIGHT = 1
-    CURRICULUM = int(1e6)
-    MILESTONE_REWARD = 10
+    # CRASH_PENALTY = -1000
+    PROGRESS_WEIGHT = 100
+    CRASH_CURRICULUM = int(1e5)
+    DELTA_U_CURRICULUM = int(1e6)
+    V_REF_CURRICULUM = int(1e6)
+    MILESTONE_REWARD = 5
+    DECAY_INTERVAL = 1e5
+    MAX_CRASH_PENALTY = 1 # now staying constant
+    TURN_SPEED_PENALTY = 0 #-0.1
     def _get_reward(self, action):
         """
         Get the reward for the current step
@@ -309,7 +321,8 @@ class F110EnvDR(F110Env):
 
         # NOTE: can't make some penalties negative b/c otherwise agent learns to just crash to get a quick
         # negative reward
-        self.crash_penalty = -(1 + 9 * np.tanh(self.total_timesteps / self.CURRICULUM)) # gradually grows between 1 and 10
+        self.crash_penalty = -(1 + (self.MAX_CRASH_PENALTY - 1) * 
+                               np.tanh(self.total_timesteps / self.CRASH_CURRICULUM)) # gradually grows between 1 and max value
 
         if not hasattr(self, "last_s"):
             self.last_s = [0.0] * self.num_agents
@@ -331,19 +344,19 @@ class F110EnvDR(F110Env):
             elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
                 prog -= self.track.centerline.spline.s[-1]
     
-            # if prog > 0.9 * self.track.centerline.spline.s[-1]:
-            #     prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
 
-            reward += prog * self.PROGRESS_WEIGHT
-            reward_info['custom/reward_terms/prog'] = prog * self.PROGRESS_WEIGHT
-            # want to see this grow during training, stores percentage of track traveleed
             pcnt = prog / self.track.centerline.spline.s[-1]
+
+            prog_reward = pcnt * self.PROGRESS_WEIGHT
+            reward += prog_reward
+            reward_info['custom/reward_terms/prog'] = prog_reward
+            # want to see this grow during training, stores percentage of track traveleed
             self.total_prog += pcnt
             if self.total_prog > self.milestone:
-                self.milestone += 0.25
+                self.milestone += self.MILESTONE_INCREMEMENT
                 try:
-                    reward += self.MILESTONE_REWARD / (self.current_time - self.last_checkpoint_time)
-                    reward_info['custom/reward_terms/milestone'] = self.MILESTONE_REWARD / (self.current_time - self.last_checkpoint_time)
+                    reward += self.MILESTONE_REWARD #/ (self.current_time - self.last_checkpoint_time)
+                    reward_info['custom/reward_terms/milestone'] = self.MILESTONE_REWARD #/ (self.current_time - self.last_checkpoint_time)
                     self.last_checkpoint_time = self.current_time
                 except:
                     print(f'problem pose: {self.poses_x[i]}, {self.poses_y[i]}')
@@ -355,16 +368,21 @@ class F110EnvDR(F110Env):
                 
             # reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
             
-
             # rework the action change penalty so that it works its way up from 0 at the start of training
             # using a sigmoid
-            steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * self._sigmoid(np.abs(self.last_action[i, 0] - action[i, 0]) - self.CURRICULUM)
+            # print(np.abs(self.last_action[i, 0] - action[i, 0]))
+            time_increase_factor = self._sigmoid(((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL))
+            steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * np.abs(self.last_action[i, 0] - action[i, 0]) * time_increase_factor
             reward += steer_delta_pen
             reward_info['custom/reward_terms/delta_steer'] = steer_delta_pen
 
-            vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * self._sigmoid(np.abs(self.last_action[i, 1] - action[i, 1]) - self.CURRICULUM)
+            vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * np.abs(self.last_action[i, 1] - action[i, 1]) * time_increase_factor
             reward += vel_delta_pen
             reward_info['custom/reward_terms/delta_v'] = vel_delta_pen
+
+            turn_speed_pen = self.TURN_SPEED_PENALTY * np.abs((action[i, 0] * action[i, 1])) * time_increase_factor
+            reward += turn_speed_pen
+            reward_info['custom/reward_terms/turning_spped'] = turn_speed_pen
 
             if self.collisions[i]:
                 reward += self.crash_penalty
@@ -373,9 +391,14 @@ class F110EnvDR(F110Env):
             else:
                 reward_info['custom/reward_terms/collision'] = 0.0
             
+            ## velocity tracing for a warm start - want to wean this off to let policy eventually learn potentially
+            ## better 
+            time_decrease_factor = self._sigmoid(-((self.total_timesteps - self.V_REF_CURRICULUM) / self.DECAY_INTERVAL))
             # v_ref = self.vspline(current_s)
             # maxes out when v_ref = v_action
-            # reward += self.VELOCITY_ERROR_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2) 
+            # vel_track_reward = self.VELOCITY_REWARD_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2)  * time_decrease_factor
+            # reward += vel_track_reward
+            # reward_info['custom/reward_terms/vel_tracking'] = vel_track_reward
 
             # yaw_ref = self.yaw_spline(current_s)
             # if abs(self.poses_theta[i] - yaw_ref) > np.deg2rad(75):
@@ -383,11 +406,13 @@ class F110EnvDR(F110Env):
             # print(action)
             if np.abs(action[i, 1]) < 1e-3 :
                 # print('stagnating')
-                stag_penalty = self.timestep * self.crash_penalty
+                stag_penalty = self.crash_penalty # self.timestep * 
                 reward += stag_penalty # make stagnating for a second just as bad as crashing
                 reward_info['custom/reward_terms/stagnation'] = stag_penalty
             else:
                 reward_info['custom/reward_terms/stagnation'] = 0.0
+
+            reward_info['custom/reward_terms/total_timestep_reward'] = reward
             
             self.last_s[i] = current_s
             
@@ -412,7 +437,7 @@ class F110EnvDR(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = 0.25
+        self.milestone = self.MILESTONE_INCREMEMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset
