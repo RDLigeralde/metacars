@@ -134,9 +134,9 @@ class F110EnvDR(F110Env):
 
         
         self.centerline = self._update_centerline(config['map'])
-        # raceline = self._update_raceline(config['map'])
-        # self.vspline = self._get_velocity_spline(raceline)
-        # self.yaw_spline = self._get_yaw_spline(raceline)
+        raceline = self._update_raceline(config['map'])
+        self.vspline = self._get_velocity_spline(raceline)
+        self.yaw_spline = self._get_yaw_spline(raceline)
         self.last_action = np.zeros((self.num_agents, 2))
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
@@ -503,8 +503,7 @@ class F110EnvDR(F110Env):
 
         # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
         self.update_map(config['map'])
-        for _ in range(self.num_obstacles):
-            self._spawn_obstacle()
+        self._spawn_obstacle(self.num_obstacles)
         self._update_map_from_track()
         # get no input observations
         self.last_action = np.zeros((self.num_agents, 2))
@@ -522,15 +521,19 @@ class F110EnvDR(F110Env):
 
     def _spawn_obstacle(
         self, 
-        room=10, 
-        r_min=0.2,
-        margin=0.6
+        n_obs,
+        obs_room = 30,
+        room=30, 
+        r_min=0.15,
+        r_max=0.3,
+        margin=0.6,
     ):
         """
         spawns a random box on track room away from ego
         only draws circles for now, with low lidar resolution should be fine
 
         Args:
+            obs_room: minimum number of indices separating the sampled centerline points for the obstacles
             room (int): minimum distance in indices from ego to spawn location 
             r_min (float): minimum obstacle size
             margin (float): how much track width to leave on either side of the circle
@@ -542,26 +545,38 @@ class F110EnvDR(F110Env):
         # deletes indices in B_r(pt) from selection pool
         # TODO: idk if these checks are necessary,
         # agent reset might account for updated occupancy map
-        idxs = np.arange(self.centerline.shape[0])
-        close = idxs.take(np.arange(n_idx - room, n_idx + room + 1), mode='wrap')
-        idxs = np.delete(idxs, close)
-        rand_idx = np.random.choice(idxs)
+        # track.centerline.
+        curr = self.track.occupancy_map
+        idxs = np.arange(len(self.centerline))
+        remove_window = np.arange(n_idx - room, n_idx + room + 1)
+        remove_window[remove_window < 0] += self.centerline.shape[0]
+        remove_window[remove_window > self.centerline.shape[0]] -= self.centerline.shape[0]
+        idxs = np.setdiff1d(idxs, remove_window)
+        for i in range(n_obs):
 
-        # randomly select (s, ey) from remaining indices
-        xc, yc = self.centerline[rand_idx,:2]
-        wl, wr = self.centerline[rand_idx,2:4] # track width at (xc, yc)
-        s, _ = self.track.centerline.spline.calc_arclength_inaccurate(xc, yc)
-        yaw = self.yaw_spline(s)
-        ey = np.random.uniform(-wr, wl)
-        dx = -ey * np.cos(yaw)
-        dy = ey * np.cos(yaw)
-        x = xc + dx
-        y = yc + dy
-        # select appropriate radius using track width and ey
-        r_max = (wl + wr - 2 * margin) / 2
-        r_max = max(r_min, r_max) # to ensure nonnegative
-        r = np.random.uniform(r_min, r_max)
-        return self._draw_circle(x, y, r)
+            # randomly select (s, ey) from remaining indices
+            rand_idx = np.random.choice(idxs)
+
+            # exclude next ones in next iteration
+            remove_window = np.arange(rand_idx - obs_room, rand_idx + obs_room + 1)
+            remove_window[remove_window < 0] += self.centerline.shape[0]
+            remove_window[remove_window > self.centerline.shape[0]] -= self.centerline.shape[0]
+            idxs = np.setdiff1d(idxs, remove_window)
+
+            # print(rand_idx)
+            xc, yc = self.centerline[rand_idx, :2]
+            s, _ = self.track.centerline.spline.calc_arclength_inaccurate(xc, yc)
+            yaw = self.yaw_spline(s)    
+            wl, wr = self.centerline[rand_idx, 2:4] # track width at (xc, yc)
+            ey = np.random.uniform(-wr, wl)
+
+            dx = -ey * np.sin(yaw)
+            dy = ey * np.cos(yaw)
+            x = xc + dx
+            y = yc + dy
+            r = np.random.uniform(r_min, r_max)
+            curr = self._draw_circle(x, y, r)
+        return curr
 
     def _draw_circle(self, x, y, r):
         """draws circle on the occupancy grid"""
