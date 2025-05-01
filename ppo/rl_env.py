@@ -171,15 +171,26 @@ class F110EnvDR(F110Env):
         for i in range(raceline_info.shape[0]):
             x = raceline_info[i, 1]
             y = raceline_info[i, 2]
-            sv_values.append([self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0], 
-                              raceline_info[i, 5]])
+            sv_values.append([self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0],
+                            raceline_info[i, 5]])
         sv_values = np.array(sv_values)
-        # print(sv_values)
         sv_values = sv_values[sv_values[:, 0].argsort()]
-        ## noticed that last value repeats
         sv_values = sv_values[:-1]
-        return CubicSpline(sv_values[:,0], sv_values[:,1])
 
+        s_diff = np.diff(sv_values[:, 0])
+        mask = np.ones(len(sv_values), dtype=bool)
+        mask[1:] = s_diff > 0
+
+        cleaned_values = sv_values[mask]
+
+        if len(cleaned_values) < 4:
+            print("Warning: Not enough unique points for cubic spline. Using linear interpolation.")
+            from scipy.interpolate import interp1d
+            return interp1d(cleaned_values[:, 0], cleaned_values[:, 1], 
+                            bounds_error=False, fill_value="extrapolate")
+
+        return CubicSpline(cleaned_values[:, 0], cleaned_values[:, 1])
+    
     def _sample_dict(self, params: dict):
         """Sample parameters for domain randomization"""
         pcopy = params.copy()

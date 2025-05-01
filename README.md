@@ -21,6 +21,24 @@ cd f1tenth_gym
 pip install -e .
 ```
 
+For windows: 
+
+```bash
+source gym_env/Scripts/activate
+
+export DISPLAY=:0
+
+python eval.py --config C:\Users\kliu3\source\repos\metacars\ppo\exp_cfgs\obs.yml --model C:\Users\kliu3\source\repos\metacars\models\model_4cm_hr.zip
+
+python eval.py --config C:/Users/kliu3/source/repos/metacars/ppo/exp_cfgs/obs.yml --model C:/Users/kliu3/source/repos/metacars/models/model_4cm_hr.zip
+
+
+python learn.py --config C:\Users\kliu3\source\repos\metacars\ppo\exp_cfgs\obs.yml
+
+```
+
+
+
 Then you can run a quick waypoint follow example by:
 ```bash
 cd examples
