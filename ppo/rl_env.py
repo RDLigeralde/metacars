@@ -393,7 +393,7 @@ class F110EnvDR(F110Env):
 
             turn_speed_pen = self.TURN_SPEED_PENALTY * np.abs((action[i, 0] * action[i, 1])) * time_increase_factor
             reward += turn_speed_pen
-            reward_info['custom/reward_terms/turning_spped'] = turn_speed_pen
+            reward_info['custom/reward_terms/turning_speed'] = turn_speed_pen
 
             if self.collisions[i]:
                 reward += self.crash_penalty

@@ -375,7 +375,62 @@ class VectorObservation(Observation):
             vec_obs.extend(list(agent_obs[k]))
 
         return np.array(vec_obs)
+    
+class FeaturesObservationMARL(Observation):
+    def __init__(self, env, features: List[str]):
+        super().__init__(env)
+        self.features = features
+        self.large_num = 1e30
+        self.num_agents = env.unwrapped.num_agents
 
+    def space(self):
+        scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
+        scan_range = (
+            self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
+        )
+
+        space = {
+            'scans': gym.spaces.Box(
+                low=0.0, high=scan_range, shape=(self.num_agents, scan_size), dtype=np.float32
+            ),
+            'poses': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(self.num_agents, 3), dtype=np.float32
+            ),
+            'vels': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(self.num_agents, 3), dtype=np.float32
+            ),
+            'headings': gym.spaces.Box(
+                low=-self.large_num, high=self.large_num, shape=(self.num_agents, 2), dtype=np.float32
+            )
+        }
+        return gym.spaces.Dict(space)
+    
+    def observe(self):
+        scans = self.env.unwrapped.sim.agent_scans
+        poses = np.zeros((self.num_agents, 3), dtype=np.float32)
+        vels = np.zeros((self.num_agents, 3), dtype=np.float32)
+        headings = np.zeros((self.num_agents, 2), dtype=np.float32)
+        agents = self.env.unwrapped.sim.agents
+        for i in range(self.num_agents):
+            agent = agents[i]
+            std_state = agent.standard_state
+            x, y, theta = std_state["x"], std_state["y"], std_state["yaw"]
+            delta = std_state["delta"]
+            beta = std_state["slip"]
+            vx = std_state["v_x"]
+            vy = std_state["v_y"]
+            angvel = std_state["yaw_rate"]
+
+            poses[i, :] = np.array((x,y,theta), dtype=np.float32)
+            vels[i, :] = np.array((vx,vy,angvel), dtype=np.float32)
+            headings[i, :] = np.array((delta, beta), dtype=np.float32)
+
+        return {
+            "scans": scans.astype(np.float32),
+            "poses": poses,
+            "vels": vels,
+            "headings": headings
+        }
 
 def observation_factory(env, type: str | None, **kwargs) -> Observation:
     type = type or "original"
@@ -428,5 +483,18 @@ def observation_factory(env, type: str | None, **kwargs) -> Observation:
             "beta"
         ]
         return FeaturesObservationRL(env, features=features)
+    elif type == "frenet_marl":
+        features = [
+            "scan",
+            "pose_x",
+            "pose_y",
+            "pose_theta",
+            "linear_vel_x",
+            "linear_vel_y",
+            "ang_vel_z",
+            "delta",
+            "beta"
+        ]
+        return FeaturesObservationMARL(env, features=features)
     else:
         raise ValueError(f"Invalid observation type {type}.")
