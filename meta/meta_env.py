@@ -308,10 +308,10 @@ class F110MultiView(gym.Wrapper):
         scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
         scan_range = self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
         self.observation_space = gym.spaces.Dict({
-            'scans': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
-            'poses': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
-            'vels': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
-            'headings': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 2), dtype=np.float32),
+            'scan': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
+            'pose': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
+            'vel': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
+            'heading': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 2), dtype=np.float32),
         })
 
     def reset(self, opponent_idx=None, seed=None, options=None) -> Tuple[dict, dict]:
@@ -334,10 +334,10 @@ class F110MultiView(gym.Wrapper):
 
     def _ego_observe(self, obs: dict, idx: int) -> dict:
         return {
-            'scans': obs['scans'][idx:idx+1],
-            'poses': obs['poses'][idx:idx+1],
-            'vels': obs['vels'][idx:idx+1],
-            'headings': obs['headings'][idx:idx+1]
+            'scan': obs['scan'][idx:idx+1],
+            'pose': obs['pose'][idx:idx+1],
+            'vel': obs['vel'][idx:idx+1],
+            'heading': obs['heading'][idx:idx+1]
         }
 
 

@@ -5,7 +5,7 @@ world:
   num_envs:
     count: 1 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
-  num_beams: 360 # number of lidar beams
+  num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config: 
     type: frenet_marl # need the nested dict for the observation config
