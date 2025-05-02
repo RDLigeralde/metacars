@@ -390,16 +390,16 @@ class FeaturesObservationMARL(Observation):
         )
 
         space = {
-            'scans': gym.spaces.Box(
+            'scan': gym.spaces.Box(
                 low=0.0, high=scan_range, shape=(self.num_agents, scan_size), dtype=np.float32
             ),
-            'poses': gym.spaces.Box(
+            'pose': gym.spaces.Box(
                 low=-self.large_num, high=self.large_num, shape=(self.num_agents, 3), dtype=np.float32
             ),
-            'vels': gym.spaces.Box(
+            'vel': gym.spaces.Box(
                 low=-self.large_num, high=self.large_num, shape=(self.num_agents, 3), dtype=np.float32
             ),
-            'headings': gym.spaces.Box(
+            'heading': gym.spaces.Box(
                 low=-self.large_num, high=self.large_num, shape=(self.num_agents, 2), dtype=np.float32
             )
         }
@@ -426,10 +426,10 @@ class FeaturesObservationMARL(Observation):
             headings[i, :] = np.array((delta, beta), dtype=np.float32)
 
         return {
-            "scans": scans.astype(np.float32),
-            "poses": poses,
-            "vels": vels,
-            "headings": headings
+            "scan": scans.astype(np.float32),
+            "pose": poses,
+            "vel": vels,
+            "heading": headings
         }
 
 def observation_factory(env, type: str | None, **kwargs) -> Observation:
