@@ -54,7 +54,7 @@ def train(
     norm_obs = env_args.pop('normalize_observations', False)
     norm_rew = env_args.pop('normalize_rewards', False)
     
-    opponents = [OpponentDriver()] # TODO: replace with actual opponents
+    opponents = [OpponentDriver()] if env_args['num_agents'] > 1 else None # TODO: replace with actual opponents
     def make_env():
         base = gym.make(
             id='meta.meta_env:F110Multi-v0',
@@ -83,8 +83,11 @@ def train(
             "features_extractor_class": LIDARConvExtractor,
             "features_extractor_kwargs": {"features_dim": 256}
         }
-    else:
+    elif observation_type == 'mlp':
         policy = "MlpLstmPolicy" if recurrent else "MlpPolicy"
+        policy_kwargs = {}
+    else:
+        policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
         policy_kwargs = {}
     
     if num_envs == 1:
@@ -104,7 +107,6 @@ def train(
             n_envs=num_envs,
             vec_env_cls=vec_env_cls
         )
-    obs, info = env.reset()
     
     if norm_obs or norm_rew:
         env = VecNormalize(

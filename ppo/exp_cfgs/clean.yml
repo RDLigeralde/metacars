@@ -1,48 +1,20 @@
 world:
   seed: 42
   map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 2
+  num_agents: 1
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
-  num_beams: 360 # number of lidar beams
+  num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
+  num_beams: 1080 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    # lidar_conv, mlp, fremet_marl
-    # if lidar_conv, uses dict{'lidar', 'odometry'} with respective cnn, mlp embeddings
-    # if mlp, single mlp embedding
-    # if frenet_marl, separate mlp for each key
-    type: lidar_conv
+    type: frenet_rl # need the nested dict for the observation config
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
+  normalize_input: True
   render_mode: null # set null to disable rendering: only for single env eval / debugging
-
-rewards:
-  VELOCITY_REWARD_SCALE: 0.0
-  TURN_SPEED_PENALTY: 0
-  VEL_ACTION_CHANGE_PENALTY: 0
-  STEER_ACTION_CHANGE_PENALTY: -0.05
-
-  STAGNATION_PENALTY: -0.1
-  STAGNATION_CUTOFF: 0.02
-  
-  HEADING_PENALTY: -1.0
-  PROGRESS_WEIGHT: 100
-
-  CRASH_CURRICULUM: 100000
-  DECAY_INTERVAL: 100000
-  DELTA_U_CURRICULUM: 1000000
-  V_REF_CURRICULUM: 1000000
-
-  MAX_CRASH_PENALTY: 1
-  MILESTONE_REWARD: 10
-  milestone: 0.1
-  MILESTONE_INCREMENT: 0.1
-
-  POSITION_WEIGHT: 0.0
-  OVERTAKING_REWARD: 0.0
-
 
 car:
   # dr_param_ex:
@@ -92,6 +64,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
-  project_name: null # set null to disable wandb
-  run_name: null
+  log_tensorboard: True
+  project_name: levine_4ms_clean # set null to disable wandb
+  run_name: fixed_map
