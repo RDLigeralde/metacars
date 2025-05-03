@@ -19,6 +19,9 @@ world:
   render_mode: null # set null to disable rendering: only for single env eval / debugging
 
 rewards:
+  normalize_observations: True
+  normalize_rewards: True
+  
   VELOCITY_REWARD_SCALE: 0.0
   TURN_SPEED_PENALTY: 0
   VEL_ACTION_CHANGE_PENALTY: 0
