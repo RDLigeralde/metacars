@@ -1,7 +1,7 @@
-import yaml
-
 from wandb.integration.sb3 import WandbCallback
 import wandb
+
+import yaml
 
 def cfg_from_yaml(yml_path):
     """Load a YAML configuration file."""
@@ -16,7 +16,7 @@ def cfg_from_yaml(yml_path):
         print(f"Error reading YAML file: {e}")
         return None
     
-class CustomWandCallback(WandbCallback):
+class CustomWandbCallback(WandbCallback):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
     

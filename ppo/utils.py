@@ -1,3 +1,5 @@
+from wandb.integration.sb3 import WandbCallback
+import wandb
 import yaml
 
 def get_cfg_dicts(yml_path):
@@ -11,3 +13,14 @@ def get_cfg_dicts(yml_path):
     except Exception as e:
         print(f"Error reading YAML file: {e}")
         return None
+    
+class CustomWandbCallback(WandbCallback):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+    
+    def _on_step(self) -> bool:
+        # Log custom metric if present
+        for key in self.locals['infos'][0]:
+            if 'custom' in key:
+                wandb.log({key: self.locals['infos'][0][key]}, step=self.num_timesteps)
+        return super()._on_step()

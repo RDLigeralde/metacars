@@ -1,4 +1,4 @@
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 
 from sb3_contrib import RecurrentPPO
@@ -11,8 +11,7 @@ import wandb
 from meta.opponents.opponent import OpponentDriver
 from meta_env import F110MultiView
 
-from utils import cfg_from_yaml, CustomWandCallback
-from time import gmtime, strftime
+from utils import cfg_from_yaml, CustomWandbCallback
 import argparse
 import os
 
@@ -37,7 +36,7 @@ def train(
             }
         )
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
-        callback = CustomWandCallback(
+        callback = CustomWandbCallback(
             gradient_save_freq=0, 
             model_save_path=f"models/{yml_name}/{run_name}", 
             model_save_freq=model_save_freq,
@@ -47,12 +46,15 @@ def train(
         run = None
         callback = None
 
-    tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
+    tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard', False) else None
     render_mode = env_args.pop('render_mode', None)
 
+    # Extract normalization flags
+    norm_obs = env_args.pop('normalize_observations', False)
+    norm_rew = env_args.pop('normalize_rewards', False)
+    
     opponents = [OpponentDriver()] # TODO: replace with actual opponents
     def make_env():
-        # Create base environment
         base = gym.make(
             id='meta.meta_env:F110Multi-v0',
             config=env_args,
@@ -62,7 +64,7 @@ def train(
             env=base, 
             opponents=opponents,
         )
-        return viewer
+        return Monitor(viewer)
     
     recurrent = ppo_args.pop('recurrent', False)
     vec_args = env_args.pop('num_envs', {'count': 1, 'type': 'dummy'})
@@ -73,9 +75,10 @@ def train(
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
-    # Create vectorized environment
     if num_envs == 1:
         env = make_env()
+        if norm_obs or norm_rew:
+            env = DummyVecEnv([lambda: env])
     elif num_envs > 1:
         env = make_vec_env(
             make_env,
@@ -88,6 +91,15 @@ def train(
             make_env,
             n_envs=num_envs,
             vec_env_cls=vec_env_cls
+        )
+    
+    if norm_obs or norm_rew:
+        env = VecNormalize(
+            env,
+            norm_obs=norm_obs,
+            norm_rew=norm_rew,
+            clip_obs=10.0,  # TODO: make this a config option
+            gamma=env_args.get('gamma', 0.99),
         )
 
     init_path = ppo_args.pop('init_path', None)
@@ -117,6 +129,12 @@ def train(
     final_model_path = f"models/{yml_name}/{run_name}/final_model"
     os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
     ppo.save(final_model_path)
+    
+    if norm_obs or norm_rew:
+        norm_path = f"models/{yml_name}/{run_name}/vec_normalize.pkl"
+        env.save(norm_path)
+        print(f"Normalization statistics saved to {norm_path}")
+    
     print(f"Final model saved to {final_model_path}")
 
     if run:

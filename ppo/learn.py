@@ -1,33 +1,15 @@
-from rl_env import F110Ego, F110EnvDR
-from f1tenth_gym.envs import F110Env
-import gymnasium as gym
-
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
-from sb3_contrib import RecurrentPPO
-from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
-from stable_baselines3.common.callbacks import CheckpointCallback
-from wandb.integration.sb3 import WandbCallback
+from sb3_contrib import RecurrentPPO
+from stable_baselines3 import PPO
+import gymnasium as gym
 import wandb
 
-from utils import get_cfg_dicts
+from utils import get_cfg_dicts, CustomWandbCallback
 import argparse
 import os
-from time import gmtime, strftime
-
-class CustomWandCallback(WandbCallback):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-    
-    def _on_step(self) -> bool:
-        # Log custom metric if present
-        for key in self.locals['infos'][0]:
-            if 'custom' in key:
-                wandb.log({key : self.locals['infos'][0][key]}, step=self.num_timesteps)
-
-        return super()._on_step()
 
 def train(
     env_args: dict,
@@ -50,7 +32,7 @@ def train(
             }
         )
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
-        callback = CustomWandCallback(
+        callback = CustomWandbCallback(
             gradient_save_freq=0, 
             model_save_path=f"models/{yml_name}/{run_name}", 
             model_save_freq=model_save_freq,
@@ -63,11 +45,10 @@ def train(
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
     render_mode = env_args.pop('render_mode')
 
+    
     def make_env():
         base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
         return Monitor(base)
-        # base = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
-        # return F110Env(base)
     
     recurrent = ppo_args.pop('recurrent')
     vec_args = env_args.pop('num_envs')
@@ -77,8 +58,11 @@ def train(
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
+    norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
     if num_envs == 1:
         env = make_env()
+        if norm_obs or norm_rew:
+            env = DummyVecEnv([lambda: env])
     elif num_envs > 1:
         env = make_vec_env(
             make_env,
@@ -91,6 +75,15 @@ def train(
             make_env,
             n_envs=num_envs,
             vec_env_cls=vec_env_cls
+        )
+
+    if norm_obs or norm_rew:
+        env = VecNormalize(
+            env,
+            norm_obs=norm_obs,
+            norm_rew=norm_rew,
+            clip_obs=10.0, # TODO: make this a config option
+            gamma=env_args['gamma'],
         )
 
     init_path = ppo_args.pop('init_path')

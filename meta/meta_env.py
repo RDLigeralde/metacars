@@ -124,9 +124,9 @@ class F110Multi(F110Env):
         agent_reward += collision_penalty
         reward_info['custom/reward_terms/collision'] = collision_penalty
         
-        #vel_tracking_reward = self._calculate_velocity_tracking(action, current_s)
-        #agent_reward += vel_tracking_reward
-        #reward_info['custom/reward_terms/vel_tracking'] = vel_tracking_reward
+        vel_tracking_reward = self._calculate_velocity_tracking(action, current_s)
+        agent_reward += vel_tracking_reward
+        reward_info['custom/reward_terms/vel_tracking'] = vel_tracking_reward
         
         stagnation_penalty = self._calculate_stagnation_penalty(action)
         agent_reward += stagnation_penalty
@@ -199,6 +199,18 @@ class F110Multi(F110Env):
             return self.crash_penalty  # Make stagnating as bad as crashing
         return 0.0
     
+    def _calculate_velocity_tracking(self, agent_idx, action, current_s):
+        time_decrease_factor = self._sigmoid(-((self.total_timesteps - self.v_ref_curriculum) / self.decay_interval))
+        v_ref = self.vspline(current_s)
+        return self.velocity_reward_scale * np.exp(-(v_ref - action[agent_idx, 1]) ** 2) * time_decrease_factor
+    
+    def _sigmoid(self, x):
+        if x < -1e3:
+            return 0
+        if x > 1e3:
+            return 1
+        return 1 / (1 + np.exp(-x))
+    
     def _position_delta(self):
         opponent_s, _ = (
             self.track.centerline.spline.calc_arclength_inaccurate(
@@ -268,6 +280,7 @@ class F110Multi(F110Env):
             "collisions": self.sim.collisions,
             "sim_time": self.current_time,
         }
+
         done, toggle_list = self._check_done()
         truncated = False
         info = {'checkpoint_done': toggle_list}

@@ -5,11 +5,13 @@ import numpy as np
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from utils import cfg_from_yaml
-from typing import List
+from typing import List, Optional
 import argparse
 import time
+import os
 
 def evaluate(
     model_path: str,
@@ -20,6 +22,7 @@ def evaluate(
     make_video: bool = False,
     deterministic: bool = True,
     verbose: bool = True,
+    norm_path: Optional[str] = None,
     MAX_EPISODE_LENGTH: int = 2000  # 10 real seconds
 ):
     """Logs per-episode metrics over n_episodes."""
@@ -35,20 +38,36 @@ def evaluate(
     base_env = gym.make(
         id='meta.meta_env:F110Multi-v0',
         config=env_args,
-        render_mode='human',
+        render_mode=render_mode,
     )
     
     # Wrap it with the F110MultiView wrapper
     env = F110MultiView(env=base_env, opponents=opponents)
     
+    # Check if normalization was used during training
+    if norm_path and os.path.exists(norm_path):
+        if verbose:
+            print(f"Loading normalization statistics from {norm_path}")
+        # We need to vectorize the environment for VecNormalize
+        env = DummyVecEnv([lambda: env])
+        # Load the saved normalization stats
+        env = VecNormalize.load(norm_path, env)
+        # During evaluation, don't update the normalization statistics
+        env.training = False
+        # Don't normalize rewards during evaluation
+        env.norm_reward = False
+    
     if render_mode == "rgb_array":
         env = gym.wrappers.RecordVideo(env, f"video_{time.time()}")
     
-    recurrent = ppo_args.pop('recurrent')
+    recurrent = ppo_args.pop('recurrent', False)
     ppo_args.pop('init_path', None)
+    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     model_class = RecurrentPPO if recurrent else PPO
     
+    # Load the model
     model = model_class.load(model_path, env)
+    # Set the environment for the model
     model.set_env(env)
     
     episode_rewards = []
@@ -65,6 +84,8 @@ def evaluate(
     for episode in range(n_episodes):
         # Randomly select an opponent for each episode
         opponent_idx = np.random.randint(len(opponents)) if len(opponents) > 1 else 0
+        
+        # Reset the environment
         obs, _ = env.reset(opponent_idx=opponent_idx)
         
         episode_reward = 0
@@ -88,10 +109,15 @@ def evaluate(
             obs, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
             
-            episode_reward += reward
+            if norm_path and os.path.exists(norm_path):
+                original_reward = env.get_original_reward()
+                episode_reward += original_reward.item() if hasattr(original_reward, 'item') else original_reward
+            else:
+                episode_reward += reward
+            
             episode_steps += 1
             
-            if render:
+            if render and not make_video:
                 env.render()
         
         episode_duration = time.time() - start_time
@@ -101,8 +127,7 @@ def evaluate(
         episode_lengths.append(episode_steps)
         
         toggle_list = info['checkpoint_done']
-        # For F110MultiView, we're only concerned with the ego vehicle's checkpoints
-        lap_completed = toggle_list[0] >= 4  # Assuming 0 is always the ego index in the toggle list
+        lap_completed = toggle_list[0] >= 4  # Assuming 0 as ego idx
         
         opponent_name = opponents[opponent_idx].__class__.__name__
         
@@ -140,6 +165,7 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate a trained PPO model in F1TENTH environment with multiple opponents')
     parser.add_argument('--model', type=str, required=True, help='Path to the trained model')
     parser.add_argument('--config', type=str, required=True, help='Path to the config file used for training')
+    parser.add_argument('--norm_path', type=str, help='Path to the normalization statistics file')
     parser.add_argument('--episodes', type=int, default=10, help='Number of episodes to evaluate')
     parser.add_argument('--video', action='store_true', help='Record video of the evaluation (requires --no-render)')
     parser.add_argument('--no-render', action='store_true', help='Disable rendering')
@@ -147,6 +173,14 @@ def main():
     parser.add_argument('--quiet', action='store_true', help='Reduce output verbosity')
     
     args = parser.parse_args()
+    
+    if not args.norm_path:
+        model_dir = os.path.dirname(args.model)
+        potential_norm_path = os.path.join(model_dir, "vec_normalize.pkl")
+        if os.path.exists(potential_norm_path):
+            args.norm_path = potential_norm_path
+            print(f"Found normalization file at {args.norm_path}")
+    
     opponents = [OpponentDriver()]
     
     args.render = not args.no_render and not args.video
@@ -158,7 +192,8 @@ def main():
         render=not args.no_render,
         make_video=args.video,
         deterministic=not args.stochastic,
-        verbose=not args.quiet
+        verbose=not args.quiet,
+        norm_path=args.norm_path
     )
 
 if __name__ == '__main__':
