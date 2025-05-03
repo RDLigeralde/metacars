@@ -9,6 +9,7 @@ from stable_baselines3.common.monitor import Monitor
 import wandb
 
 from meta.opponents.opponent import OpponentDriver
+from network import LIDARConvExtractor
 from meta_env import F110MultiView
 
 from utils import cfg_from_yaml, CustomWandbCallback
@@ -73,7 +74,18 @@ def train(
 
     ppo_type = RecurrentPPO if recurrent else PPO
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
-    policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
+    
+    # Check if we need to use the custom feature extractor
+    observation_type = env_args.get('observation_config', {}).get('type', 'mlp')
+    if observation_type == 'lidar_conv':
+        policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
+        policy_kwargs = {
+            "features_extractor_class": LIDARConvExtractor,
+            "features_extractor_kwargs": {"features_dim": 256}
+        }
+    else:
+        policy = "MlpLstmPolicy" if recurrent else "MlpPolicy"
+        policy_kwargs = {}
     
     if num_envs == 1:
         env = make_env()
@@ -92,6 +104,7 @@ def train(
             n_envs=num_envs,
             vec_env_cls=vec_env_cls
         )
+    obs, info = env.reset()
     
     if norm_obs or norm_rew:
         env = VecNormalize(
@@ -115,11 +128,13 @@ def train(
         ppo = ppo_type(
             policy=policy,
             env=env,
+            policy_kwargs=policy_kwargs,
             tensorboard_log=tensorboard_log,
             seed=env_args.get('seed', 42),
             **ppo_args,
             verbose=1
         )
+
     
     ppo.learn(
         **train_args,

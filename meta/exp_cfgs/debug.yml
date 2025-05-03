@@ -1,14 +1,17 @@
 world:
   seed: 42
   map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 2
+  num_agents: 2 # DO NOT CHANGE THIS
   num_envs:
-    count: 1 # set -1 to use number of cpu cores
+    count: 2 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
-  num_beams: 540 # number of lidar beams
+  num_beams: 360 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    type: frenet_marl # need the nested dict for the observation config
+    # lidar_conv or mlp
+    # if lidar_conv, uses dict{'lidar', 'odometry'} with respective cnn, mlp embeddings
+    # if mlp, single mlp embedding
+    type: lidar_conv
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
@@ -23,23 +26,22 @@ rewards:
   steer_action_change_penalty: 0.0
   turn_speed_penalty: 0.0
 
+  progress_weight: 1.0
   milestone: 0.1
   milestone_increment: 0.1
   milestone_reward: 5
 
-  progress_weight: 1.0
   stagnation_penalty: -0.1
   stagnation_cutoff: 0.02
 
   max_crash_penalty: 1
-  decay_interval: 100000
   crash_curriculum: 100000
-  delta_u_curriculum: 100000
   v_ref_curriculum: 1000000
+  delta_u_curriculum: 10000
+  decay_interval: 10000
 
-  position_weight: 1.0
-  overtaking_reward: 25.0
-
+  position_weight: 1.0 # weight for making / losing ground to opponent
+  overtaking_reward: 25.0 # gained for passing, lost for being passed
 
 car:
   # dr_param_ex:
@@ -82,8 +84,8 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 100
-  save_interval: 100 # set large to only save last policy
+  total_timesteps: 100000
+  save_interval: 1000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
@@ -91,4 +93,4 @@ train_params:
 log:
   log_tensorboard: False
   project_name: null # set null to disable wandb
-  run_name: null
+  run_name: wat_the_sigma

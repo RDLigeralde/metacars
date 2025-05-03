@@ -1,14 +1,17 @@
 world:
   seed: 42
   map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 1
+  num_agents: 2 # DO NOT CHANGE THIS
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_beams: 360 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    type: frenet_rl # need the nested dict for the observation config
+    # lidar_conv or mlp
+    # if lidar_conv, uses dict{'lidar', 'odometry'} with respective cnn, mlp embeddings
+    # if mlp, single mlp embedding
+    type: lidar_conv
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']

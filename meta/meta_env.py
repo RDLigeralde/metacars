@@ -4,7 +4,7 @@ from f1tenth_gym.envs import F110Env
 import gymnasium as gym
 
 from scipy.interpolate import CubicSpline, interp1d
-from typing import Tuple, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, List
 import numpy as np
 import os
 
@@ -22,6 +22,10 @@ class F110Multi(F110Env):
             config (dict): 
             render_mode (str, optional): _description_. Defaults to None.
         """
+        # Ensure config specifies 2 agents
+        if 'num_agents' not in config:
+            config['num_agents'] = 2  # Force 2 agents for 1v1 racing
+        
         self.config = config
         self.params = config['params']
         self.reward_coefs = config['reward']
@@ -42,13 +46,39 @@ class F110Multi(F110Env):
         self.vspline, self.yaw_spline = self._init_splines()
         self._init_reward_params()
 
-        # custom metrics
+        # metrics for wandb
         self.total_timesteps = 0
         self.n_timeouts = 0
         self.n_crashes = 0
         self.last_run_progress = 0.0
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
+
+    def reset(self, **kwargs):
+        obs, info = super().reset(**kwargs)
+        
+        # Initialize tracking variables
+        self.last_s = np.zeros(2)
+        self.total_prog = 0.0
+        self.milestone = self.milestone_increment if hasattr(self, 'milestone_increment') else 0.1
+        
+        # Reset metrics
+        self.total_timesteps = 0
+        self.n_timeouts = 0
+        self.n_crashes = 0
+        self.last_run_progress = 0.0
+        self.n_laps = 0
+        self.last_checkpoint_time = 0.0
+        
+        # Reset reward tracking attributes
+        if hasattr(self, 'last_opp_dist'):
+            delattr(self, 'last_opp_dist')
+        if hasattr(self, 'leading'):
+            delattr(self, 'leading')
+        
+        self.last_action = np.zeros((2, 2))
+        
+        return obs, info
 
     def _init_splines(self):
         track = self.config['map']
@@ -199,10 +229,10 @@ class F110Multi(F110Env):
             return self.crash_penalty  # Make stagnating as bad as crashing
         return 0.0
     
-    def _calculate_velocity_tracking(self, agent_idx, action, current_s):
+    def _calculate_velocity_tracking(self, action, current_s):
         time_decrease_factor = self._sigmoid(-((self.total_timesteps - self.v_ref_curriculum) / self.decay_interval))
         v_ref = self.vspline(current_s)
-        return self.velocity_reward_scale * np.exp(-(v_ref - action[agent_idx, 1]) ** 2) * time_decrease_factor
+        return self.velocity_reward_scale * np.exp(-(v_ref - action[self.ego_idx, 1]) ** 2) * time_decrease_factor
     
     def _sigmoid(self, x):
         if x < -1e3:
@@ -269,7 +299,7 @@ class F110Multi(F110Env):
 
         self._update_state()
 
-        self.render_obs = { # TODO: figure out how to render opponent
+        self.render_obs = {
             "ego_idx": self.sim.ego_idx,
             "poses_x": self.sim.agent_poses[:, 0],
             "poses_y": self.sim.agent_poses[:, 1],
@@ -320,16 +350,26 @@ class F110MultiView(gym.Wrapper):
         large_num = 1e30
         scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
         scan_range = self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
+
         self.observation_space = gym.spaces.Dict({
             'scan': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
-            'pose': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
-            'vel': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
-            'heading': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 2), dtype=np.float32),
+            'odometry': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 8), dtype=np.float32),
         })
 
     def reset(self, opponent_idx=None, seed=None, options=None) -> Tuple[dict, dict]:
         self.opponent = self.opponents[opponent_idx] if opponent_idx else np.random.choice(self.opponents)
-        obs, info = super().reset(seed=seed, options=options)
+        
+        # Call reset on the base environment
+        result = self.env.reset(seed=seed, options=options)
+        
+        # Handle both cases: when reset returns (obs, info) or just obs
+        if isinstance(result, tuple):
+            obs, info = result
+        else:
+            obs = result
+            info = {}
+        
+        # Convert to ego observation
         return self._ego_observe(obs, self.ego_idx), info
     
     def step(self, action: np.ndarray) -> Tuple[dict, float, bool, bool, dict]:
@@ -348,18 +388,5 @@ class F110MultiView(gym.Wrapper):
     def _ego_observe(self, obs: dict, idx: int) -> dict:
         return {
             'scan': obs['scan'][idx:idx+1],
-            'pose': obs['pose'][idx:idx+1],
-            'vel': obs['vel'][idx:idx+1],
-            'heading': obs['heading'][idx:idx+1]
+            'odometry': obs['odometry'][idx:idx+1],
         }
-
-
-
-        
-        
-
-
-
-
-
-

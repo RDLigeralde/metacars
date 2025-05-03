@@ -477,10 +477,6 @@ class LIDARConvObservation(Observation):
             "scan": scans.astype(np.float32),
             "odometry": odometry
         }
-
-    def observe(self):
-        scan = self.env.unwrapped.sim.agent_scans[0]
-        return scan.astype(np.float32)
     
 class MLPObservation(Observation):
     def __init__(self, env, features: List[str]):
