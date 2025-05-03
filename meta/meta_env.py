@@ -16,24 +16,45 @@ class F110Multi(F110Env):
         **kwargs
     ):
         """
-        F110Env set up for 1v1 racing
-
-        Args:
-            config (dict): 
-            render_mode (str, optional): _description_. Defaults to None.
-        """
-        # Ensure config specifies 2 agents
-        if 'num_agents' not in config:
-            config['num_agents'] = 2  # Force 2 agents for 1v1 racing
+        F110Env set up for 1v1 racing with domain randomization support
         
-        self.config = config
-        self.params = config['params']
-        self.reward_coefs = config['reward']
-        self.ego_idx, self.opp_idx = 0, 1 # hardcoded harmlessly
-        self.last_action = np.zeros((config['num_agents'], 2))
+        Args:
+            config (dict): Configuration dictionary with optional min/max values for DR
+            render_mode (str, optional): Rendering mode. Defaults to None.
+        """
+        # Store original config for domain randomization
+        self.config_input = config
+        self.params_input = config['params']
+        
+        # Check if we're using track generation
+        if os.path.exists(config['map']) and os.path.isdir(config['map']):
+            tracks = [d for d in os.listdir(config['map']) if os.path.isdir(os.path.join(config['map'], d))]
+        else:
+            tracks = []
+            
+        if len(tracks) > 0:
+            self.use_trackgen = True
+            self.tracks = tracks
+        else:
+            self.use_trackgen = False
+            self.tracks = None
+        
+        # Sample initial configuration if using domain randomization
+        sampled_config = self._sample_dict(self.config_input)
+        sampled_config['params'] = self._sample_dict(self.params_input)
+        
+        # Ensure config specifies 2 agents
+        if 'num_agents' not in sampled_config:
+            sampled_config['num_agents'] = 2  # Force 2 agents for 1v1 racing
+        
+        self.config = sampled_config
+        self.params = sampled_config['params']
+        self.reward_coefs = sampled_config['reward']
+        self.ego_idx, self.opp_idx = 0, 1  # hardcoded harmlessly
+        self.last_action = np.zeros((sampled_config['num_agents'], 2))
 
         self.render_mode = render_mode
-        super().__init__(config=config, render_mode=render_mode, **kwargs)
+        super().__init__(config=sampled_config, render_mode=render_mode, **kwargs)
         
         self.action_space = gym.spaces.Box(
             low=-1.0,
@@ -41,7 +62,7 @@ class F110Multi(F110Env):
             shape=(self.num_agents, 2),
             dtype=np.float32,
         )
-        self.action_range = np.array([self.params['s_max'], self.params['v_max']])
+        self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
         self.action_last = np.zeros_like(self.action_range)
 
         self.vspline, self.yaw_spline = self._init_splines()
@@ -55,7 +76,36 @@ class F110Multi(F110Env):
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
 
+    def _sample_dict(self, params: dict):
+        """Sample parameters for domain randomization"""
+        pcopy = params.copy()
+        for key, val in pcopy.items():
+            if isinstance(val, dict) and 'min' in val and 'max' in val:  # sample numeric
+                pcopy[key] = np.random.uniform(val['min'], val['max'])
+            elif self.use_trackgen and key == 'map':  # sample track
+                pcopy[key] = os.path.join(self.config_input['map'], np.random.choice(self.tracks))
+        return pcopy
+
     def reset(self, **kwargs):
+        """Resets agents, randomizes params and possibly changes track"""
+        if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
+            sampled_config = self._sample_dict(self.config_input)
+            sampled_config['params'] = self._sample_dict(self.params_input)
+            self.configure({'params': sampled_config['params']})
+            
+            for k, v in sampled_config.items():
+                if k != 'params' and hasattr(self, k):
+                    setattr(self, k, v)
+            
+            self.config = sampled_config
+            self.params = sampled_config['params']
+            self.reward_coefs = sampled_config['reward']
+        
+        if self.use_trackgen:
+            self.update_map(sampled_config['map'])
+            self.vspline, self.yaw_spline = self._init_splines()
+        
+        # Call parent reset
         obs, info = super().reset(**kwargs)
         
         # Initialize tracking variables
@@ -79,10 +129,21 @@ class F110Multi(F110Env):
         
         self.last_action = np.zeros((self.num_agents, 2))
         
+        # Update renderer if necessary
+        if self.render_mode:
+            from f1tenth_gym.envs.rendering import make_renderer
+            self.renderer, self.render_spec = make_renderer(
+                params=self.params,
+                track=self.track,
+                agent_ids=self.agent_ids,
+                render_mode=self.render_mode,
+                render_fps=self.metadata["render_fps"],
+            )
+        
         return obs, info
 
     def _init_splines(self):
-        track = self.config['map']
+        track = self.config['map'] if hasattr(self, 'config') else self.config_input['map']
         track_dir = find_track_dir(track)
         raceline = os.path.join(track_dir, f"{track}_raceline.csv")
         raceline_arr = np.loadtxt(raceline, delimiter=';').astype(np.float32)

@@ -1,16 +1,17 @@
 world:
   seed: 42
   map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 2 # DO NOT CHANGE THIS
+  num_agents: 2
   num_envs:
-    count: 2 # set -1 to use number of cpu cores
+    count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_beams: 360 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    # lidar_conv or mlp
+    # lidar_conv, mlp, fremet_marl
     # if lidar_conv, uses dict{'lidar', 'odometry'} with respective cnn, mlp embeddings
     # if mlp, single mlp embedding
+    # if frenet_marl, separate mlp for each key
     type: lidar_conv
   reset_config:
     type: rl_random_static
@@ -18,30 +19,33 @@ world:
   render_mode: null # set null to disable rendering: only for single env eval / debugging
 
 rewards:
-  normalize_observations: True
-  normalize_rewards: True
+  normalize_observations: False
+  normalize_rewards: False
+  
+  VELOCITY_REWARD_SCALE: 0.0
+  TURN_SPEED_PENALTY: 0
+  VEL_ACTION_CHANGE_PENALTY: 0
+  STEER_ACTION_CHANGE_PENALTY: -0.05
 
-  velocity_reward_scale: 0.0
-  vel_action_change_penalty: 0.0
-  steer_action_change_penalty: 0.0
-  turn_speed_penalty: 0.0
+  STAGNATION_PENALTY: -0.1
+  STAGNATION_CUTOFF: 0.02
+  
+  HEADING_PENALTY: -1.0
+  PROGRESS_WEIGHT: 100
 
-  progress_weight: 1.0
+  CRASH_CURRICULUM: 100000
+  DECAY_INTERVAL: 100000
+  DELTA_U_CURRICULUM: 1000000
+  V_REF_CURRICULUM: 1000000
+
+  MAX_CRASH_PENALTY: 1
+  MILESTONE_REWARD: 10
   milestone: 0.1
-  milestone_increment: 0.1
-  milestone_reward: 5
+  MILESTONE_INCREMENT: 0.1
 
-  stagnation_penalty: -0.1
-  stagnation_cutoff: 0.02
+  POSITION_WEIGHT: 1.0
+  OVERTAKING_REWARD: 25.0
 
-  max_crash_penalty: 1
-  crash_curriculum: 100000
-  v_ref_curriculum: 1000000
-  delta_u_curriculum: 10000
-  decay_interval: 10000
-
-  position_weight: 1.0 # weight for making / losing ground to opponent
-  overtaking_reward: 25.0 # gained for passing, lost for being passed
 
 car:
   # dr_param_ex:
@@ -55,8 +59,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -2.0
-  v_max: 2.0
+  v_min: -4.0
+  v_max: 4.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189
@@ -84,7 +88,7 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 100000
+  total_timesteps: 1000
   save_interval: 1000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
@@ -93,4 +97,4 @@ train_params:
 log:
   log_tensorboard: False
   project_name: null # set null to disable wandb
-  run_name: wat_the_sigma
+  run_name: null
