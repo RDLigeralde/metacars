@@ -7,9 +7,9 @@ def get_cfg_dicts(yml_path):
     try:
         with open(yml_path, 'r') as f:
             cfg = yaml.safe_load(f)
-            world, car, ppo_params, train_params, log = (cfg[key] for key in ['world', 'car', 'ppo_params', 'train_params', 'log'])
+            world, car, rewards, ppo_params, train_params, log = (cfg[key] for key in ['world', 'car', 'reward_params', 'ppo_params', 'train_params', 'log'])
             world['params'] = car
-            #world['rewards'] = rewards
+            world['reward_params'] = rewards
             return world, ppo_params, train_params, log
     except Exception as e:
         print(f"Error reading YAML file: {e}")

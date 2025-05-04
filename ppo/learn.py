@@ -1,7 +1,6 @@
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from rl_env import F110EnvLegacy
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO

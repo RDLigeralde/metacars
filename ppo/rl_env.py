@@ -38,6 +38,9 @@ class F110EnvLegacy(F110Env):
         self.params_input = config['params']
         self.num_obstacles = config["num_obstacles"]
 
+        self.reward_params = config.get('reward_params', {})
+        self._init_reward_params()
+
         if os.path.exists(config['map']) and os.path.isdir(config['map']):
             tracks = [d for d in os.listdir(config['map']) if os.path.isdir(os.path.join(config['map'], d))]
         else:
@@ -74,20 +77,34 @@ class F110EnvLegacy(F110Env):
         self.total_prog = 0 #np.zeros((self.num_agents,))
 
         # crash penalty for rewards that will gradually get stricter
-        self.crash_penalty = -1.0
+        self.crash_penalty = self.reward_params.get('initial_crash_penalty', -1.0)
         self.total_timesteps = 0
 
-        self.MILESTONE_INCREMEMENT = 0.1
-        self.milestone = 0.1 # percentage progress that will trigger a large positive reward
+        self.MILESTONE_INCREMENT = self.reward_params.get('milestone_increment', 0.1)
+        self.milestone = self.reward_params.get('initial_milestone', 0.1)  # percentage progress that will trigger a large positive reward
 
-        # print(self.action_space)
-        # for logging
         self.n_timeouts = 0
         self.n_crashes = 0
         self.last_run_progress = 0.0
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
 
+    def _init_reward_params(self):
+        """Initialize reward parameters from config or use defaults"""
+        self.VEL_ACTION_CHANGE_PENALTY = self.reward_params.get('vel_action_change_penalty', 0)
+        self.STEER_ACTION_CHANGE_PENALTY = self.reward_params.get('steer_action_change_penalty', -0.05)
+        self.STAGNATION_PENALTY = self.reward_params.get('stagnation_penalty', -0.1)
+        self.STAGNATION_CUTOFF = self.reward_params.get('stagnation_cutoff', 0.02)
+        self.VELOCITY_REWARD_SCALE = self.reward_params.get('velocity_reward_scale', 0.0)
+        self.HEADING_PENALTY = self.reward_params.get('heading_penalty', -1.0)
+        self.PROGRESS_WEIGHT = self.reward_params.get('progress_weight', 100)
+        self.CRASH_CURRICULUM = self.reward_params.get('crash_curriculum', int(1e5))
+        self.DELTA_U_CURRICULUM = self.reward_params.get('delta_u_curriculum', int(1e6))
+        self.V_REF_CURRICULUM = self.reward_params.get('v_ref_curriculum', int(1e6))
+        self.MILESTONE_REWARD = self.reward_params.get('milestone_reward', 5)
+        self.DECAY_INTERVAL = self.reward_params.get('decay_interval', 1e5)
+        self.MAX_CRASH_PENALTY = self.reward_params.get('max_crash_penalty', 1)
+        self.TURN_SPEED_PENALTY = self.reward_params.get('turn_speed_penalty', 0)
 
     def _get_yaw_spline(self, raceline_info):
         data = np.zeros((raceline_info.shape[0], 2))
@@ -254,7 +271,7 @@ class F110EnvLegacy(F110Env):
     def _get_milestone_reward(self):
         """Calculate milestone reward if threshold is passed"""
         if self.total_prog > self.milestone:
-            self.milestone += self.MILESTONE_INCREMEMENT
+            self.milestone += self.MILESTONE_INCREMENT
             try:
                 milestone_reward = self.MILESTONE_REWARD
                 self.last_checkpoint_time = self.current_time
@@ -373,22 +390,6 @@ class F110EnvLegacy(F110Env):
         
         return total_reward, reward_info
 
-    # Class attribute definitions (constants)
-    VEL_ACTION_CHANGE_PENALTY = 0  # -0.5
-    STEER_ACTION_CHANGE_PENALTY = -0.05  # -1.0
-    STAGNATION_PENALTY = -0.1
-    STAGNATION_CUTOFF = 0.02  # delta s as a fraction of total track length
-    VELOCITY_REWARD_SCALE = 0.0
-    HEADING_PENALTY = -1.0
-    PROGRESS_WEIGHT = 100
-    CRASH_CURRICULUM = int(1e5)
-    DELTA_U_CURRICULUM = int(1e6)
-    V_REF_CURRICULUM = int(1e6)
-    MILESTONE_REWARD = 5
-    DECAY_INTERVAL = 1e5
-    MAX_CRASH_PENALTY = 1
-    TURN_SPEED_PENALTY = 0  # -0.1
-
     def _reset_pos(self, seed=None, options=None):
         '''
         Resets the pose (position and orientation) of the car. To be called in reset() and
@@ -408,7 +409,7 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMEMENT
+        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset

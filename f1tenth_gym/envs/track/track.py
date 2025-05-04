@@ -209,8 +209,8 @@ class Track:
             image_path = path.parent / track_spec.image 
             image = Image.open(image_path).transpose(Transpose.FLIP_TOP_BOTTOM)
             occupancy_map = np.array(image).astype(np.float32)
-            occupancy_map[occupancy_map <= 128] = 0.0
-            occupancy_map[occupancy_map > 128] = 255.0
+            occupancy_map[occupancy_map <= 250] = 0.0
+            occupancy_map[occupancy_map > 250] = 255.0
 
             # if exists, load centerline
             if (path / f"{path.stem}_centerline.csv").exists():

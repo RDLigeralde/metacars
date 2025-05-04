@@ -3,18 +3,49 @@ world:
   map: levine # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 1 # set -1 to use number of cpu cores
-    type: subproc # subproc or dummy
-  num_obstacles: 10 # spawns obstacles in range [0, num_obstacles]
+    count: 8 # set -1 to use number of cpu cores
+    type: dummy # subproc or dummy
   num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    type: frenet_rl # need the nested dict for the observation config
+    # lidar_conv, mlp, fremet_marl
+    # if lidar_conv, uses dict{'lidar', 'odometry'} with respective cnn, mlp embeddings
+    # if mlp, single mlp embedding
+    # if frenet_marl, separate mlp for each key
+    type: lidar_conv
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
-  normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
+
+rewards:
+  normalize_observations: False
+  normalize_rewards: False
+
+  VELOCITY_REWARD_SCALE: 0.0
+  TURN_SPEED_PENALTY: 0
+  VEL_ACTION_CHANGE_PENALTY: 0
+  STEER_ACTION_CHANGE_PENALTY: -0.05
+
+  STAGNATION_PENALTY: -0.1
+  STAGNATION_CUTOFF: 0.02
+  
+  HEADING_PENALTY: -1.0
+  PROGRESS_WEIGHT: 100
+
+  CRASH_CURRICULUM: 100000
+  DECAY_INTERVAL: 100000
+  DELTA_U_CURRICULUM: 1000000
+  V_REF_CURRICULUM: 1000000
+
+  MAX_CRASH_PENALTY: 1
+  MILESTONE_REWARD: 10
+  milestone: 0.1
+  MILESTONE_INCREMENT: 0.1
+
+  POSITION_WEIGHT: 0.0
+  OVERTAKING_REWARD: 0.0
+
 
 car:
   # dr_param_ex:
@@ -28,8 +59,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -4.0
-  v_max: 4.0
+  v_min: -10.0
+  v_max: 10.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189
@@ -44,12 +75,12 @@ ppo_params:
   learning_rate: 0.0001
   n_steps: 2048
   batch_size: 64
-  n_epochs: 10
+  n_epochs: 8
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.2
+  clip_range: 0.15
   clip_range_vf: null
-  normalize_advantage: False
+  normalize_advantage: True
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
@@ -65,5 +96,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: levine_blocked_legacy # set null to disable wandb
-  run_name: oldschool
+  project_name: convtest # set null to disable wandb
+  run_name: split_arch
