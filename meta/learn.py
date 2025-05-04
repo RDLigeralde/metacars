@@ -58,6 +58,7 @@ def train(
     def make_env():
         base = gym.make(
             id='meta.meta_env:F110Multi-v0',
+            #id='ppo.rl_env:f1tenth-v0-dr',
             config=env_args,
             render_mode=render_mode,
         )
@@ -136,7 +137,6 @@ def train(
             **ppo_args,
             verbose=1
         )
-
     
     ppo.learn(
         **train_args,

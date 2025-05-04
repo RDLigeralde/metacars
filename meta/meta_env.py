@@ -11,369 +11,57 @@ import os
 class F110Multi(F110Env):
     def __init__(
         self,
-        config: dict,
-        render_mode: str = None,
+        config: Dict[str, Any],
+        render_mode: Optional[str] = None,
         **kwargs
     ):
-        """
-        F110Env set up for 1v1 racing with domain randomization support
-        
-        Args:
-            config (dict): Configuration dictionary with optional min/max values for DR
-            render_mode (str, optional): Rendering mode. Defaults to None.
-        """
-        # Store original config for domain randomization
-        self.config_input = config
-        self.params_input = config['params']
-        
-        # Check if we're using track generation
-        if os.path.exists(config['map']) and os.path.isdir(config['map']):
-            tracks = [d for d in os.listdir(config['map']) if os.path.isdir(os.path.join(config['map'], d))]
-        else:
-            tracks = []
-            
-        if len(tracks) > 0:
-            self.use_trackgen = True
-            self.tracks = tracks
-        else:
-            self.use_trackgen = False
-            self.tracks = None
-        
-        # Sample initial configuration if using domain randomization
-        sampled_config = self._sample_dict(self.config_input)
-        sampled_config['params'] = self._sample_dict(self.params_input)
-        
-        # Ensure config specifies 2 agents
-        if 'num_agents' not in sampled_config:
-            sampled_config['num_agents'] = 2  # Force 2 agents for 1v1 racing
-        
-        self.config = sampled_config
-        self.params = sampled_config['params']
-        self.reward_coefs = sampled_config['reward']
-        self.ego_idx, self.opp_idx = 0, 1  # hardcoded harmlessly
-        self.last_action = np.zeros((sampled_config['num_agents'], 2))
-
+        """F110Env with adversarial reward structure"""
+        super().__init__(config=config, render_mode=render_mode)
+        self.config = config
         self.render_mode = render_mode
-        super().__init__(config=sampled_config, render_mode=render_mode, **kwargs)
-        
-        self.action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(self.num_agents, 2),
-            dtype=np.float32,
-        )
-        self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
-        self.action_last = np.zeros_like(self.action_range)
+        self._init_rews()
 
-        self.vspline, self.yaw_spline = self._init_splines()
-        self._init_reward_params()
+        self.norm_input = config.get('normalize_input', False)
+        if self.norm_input:
+            self.action_space = gym.spaces.Box(
+                low=-1.0,
+                high=1.0,
+                shape=(self.num_agents, 2),
+                dtype=np.float32,
+            )
+            self.action_range = np.array([
+                config['params']['s_max'],
+                config['params']['v_max'],
+            ])
 
-        # metrics for wandb
+        # to reward following raceline
+        self.raceline, self.centerline = self._set_lines(config['map'])
+        self.vspline = self._calc_vspline()
+        self.yspline = self._calc_yspline()
+
+        # to reward stable driving
+        self.last_action = np.zeros((self.num_agents, 2), dtype=np.float32)
+
+        # progress tracking
+        self.stag_count = 0
+        self.total_prog = 0
         self.total_timesteps = 0
-        self.n_timeouts = 0
-        self.n_crashes = 0
-        self.last_run_progress = 0.0
-        self.n_laps = 0
-        self.last_checkpoint_time = 0.0
 
-    def _sample_dict(self, params: dict):
-        """Sample parameters for domain randomization"""
-        pcopy = params.copy()
-        for key, val in pcopy.items():
-            if isinstance(val, dict) and 'min' in val and 'max' in val:  # sample numeric
-                pcopy[key] = np.random.uniform(val['min'], val['max'])
-            elif self.use_trackgen and key == 'map':  # sample track
-                pcopy[key] = os.path.join(self.config_input['map'], np.random.choice(self.tracks))
-        return pcopy
+        self.timeouts = 0
+        self.crashes = 0
+        self.last_progress = 0.0
+        self.laps = 0
+        self.last_ckpt_time = 0.0
 
-    def reset(self, **kwargs):
-        """Resets agents, randomizes params and possibly changes track"""
-        if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
-            sampled_config = self._sample_dict(self.config_input)
-            sampled_config['params'] = self._sample_dict(self.params_input)
-            self.configure({'params': sampled_config['params']})
-            
-            for k, v in sampled_config.items():
-                if k != 'params' and hasattr(self, k):
-                    setattr(self, k, v)
-            
-            self.config = sampled_config
-            self.params = sampled_config['params']
-            self.reward_coefs = sampled_config['reward']
-        
-        if self.use_trackgen:
-            self.update_map(sampled_config['map'])
-            self.vspline, self.yaw_spline = self._init_splines()
-        
-        # Call parent reset
-        obs, info = super().reset(**kwargs)
-        
-        # Initialize tracking variables
-        self.last_s = np.zeros(self.num_agents)
-        self.total_prog = 0.0
-        self.milestone = self.milestone_increment if hasattr(self, 'milestone_increment') else 0.1
-        
-        # Reset metrics
-        self.total_timesteps = 0
-        self.n_timeouts = 0
-        self.n_crashes = 0
-        self.last_run_progress = 0.0
-        self.n_laps = 0
-        self.last_checkpoint_time = 0.0
-        
-        # Reset reward tracking attributes
-        if hasattr(self, 'last_opp_dist'):
-            delattr(self, 'last_opp_dist')
-        if hasattr(self, 'leading'):
-            delattr(self, 'leading')
-        
-        self.last_action = np.zeros((self.num_agents, 2))
-        
-        # Update renderer if necessary
-        if self.render_mode:
-            from f1tenth_gym.envs.rendering import make_renderer
-            self.renderer, self.render_spec = make_renderer(
-                params=self.params,
-                track=self.track,
-                agent_ids=self.agent_ids,
-                render_mode=self.render_mode,
-                render_fps=self.metadata["render_fps"],
-            )
-        
-        return obs, info
-
-    def _init_splines(self):
-        track = self.config['map'] if hasattr(self, 'config') else self.config_input['map']
-        track_dir = find_track_dir(track)
-        raceline = os.path.join(track_dir, f"{track}_raceline.csv")
-        raceline_arr = np.loadtxt(raceline, delimiter=';').astype(np.float32)
-        
-        vspline = self._get_velocity_spline(raceline_arr)
-        yaw_spline = self._get_yaw_spline(raceline_arr)
-        return vspline, yaw_spline
-
-    def _init_reward_params(self):
-        self.total_prog = 0.0
-        for key, value in self.reward_coefs.items():
-            setattr(self, key, value)
-
-    def _get_yaw_spline(self, raceline_info: np.ndarray) -> CubicSpline:
-        data = np.zeros((raceline_info.shape[0], 2))
-        data[:, 0] = raceline_info[:, 0] # s
-        data[:, 1] = raceline_info[:, 3] # yaw
-        data = data[data[:, 0].argsort()]
-        data = data[:-1]
-        return CubicSpline(data[:, 0], data[:, 1])
-    
-    def _get_velocity_spline(self, raceline_info: np.ndarray) -> CubicSpline:
-        sv_values = []
-        for i in range(raceline_info.shape[0]):
-            x = raceline_info[i, 1]
-            y = raceline_info[i, 2]
-            sv_values.append([self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0],
-                            raceline_info[i, 5]])
-        sv_values = np.array(sv_values)
-        sv_values = sv_values[sv_values[:, 0].argsort()]
-        sv_values = sv_values[:-1]
-
-        s_diff = np.diff(sv_values[:, 0])
-        mask = np.ones(len(sv_values), dtype=bool)
-        mask[1:] = s_diff > 0
-
-        cleaned_values = sv_values[mask]
-
-        if len(cleaned_values) < 4:
-            return interp1d(cleaned_values[:, 0], cleaned_values[:, 1], 
-                            bounds_error=False, fill_value="extrapolate")
-
-        return CubicSpline(cleaned_values[:, 0], cleaned_values[:, 1])
-    
-    def _sigmoid(self, x):
-        if x < -1e3:
-            return 0
-        if x > 1e3:
-            return 1
-        return 1.0 / (1.0 + np.exp(-x))
-
-    def _calculate_progress_reward(self, agent_idx):
-        """Calculate reward for making progress along the track."""
-        current_s, _ = (
-            self.track.raceline.spline.calc_arclength_inaccurate(
-                self.poses_x[agent_idx], self.poses_y[agent_idx]
-            )
-        )
-
-        prog = current_s - self.last_s[agent_idx]
-
-        if current_s < 0.1 * self.track.raceline.spline.s[-1] and self.last_s[agent_idx] > 0.9 * self.track.raceline.spline.s[-1]:
-            prog += self.track.raceline.spline.s[-1]
-        elif self.last_s[agent_idx] < 0.1 * self.track.raceline.spline.s[-1] and current_s > 0.9 * self.track.raceline.spline.s[-1]:
-            prog -= self.track.raceline.spline.s[-1]
-
-        pcnt = prog / self.track.raceline.spline.s[-1]
-        prog_reward = pcnt * self.PROGRESS_WEIGHT
-
-        return prog_reward, current_s, pcnt
-
-    def _calculate_milestone_reward(self, pcnt):
-        """Calculate reward for reaching milestones."""
-        self.total_prog += pcnt
-        if self.total_prog > self.milestone:
-            self.milestone += self.MILESTONE_INCREMENT
-            try:
-                self.last_checkpoint_time = self.current_time
-                return self.MILESTONE_REWARD
-            except:
-                print('Error calculating milestone reward')
-                raise Exception('div by 0')
-        return 0.0
-
-    def _calculate_action_penalties(self, action, agent_idx):
-        """Calculate penalties for action changes."""
-        penalties = {}
-        
-        time_increase_factor = self._sigmoid(((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL))
-        
-        steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * np.abs(self.last_action[agent_idx, 0] - action[agent_idx, 0]) * time_increase_factor
-        penalties['delta_steer'] = steer_delta_pen
-        
-        vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * np.abs(self.last_action[agent_idx, 1] - action[agent_idx, 1]) * time_increase_factor
-        penalties['delta_v'] = vel_delta_pen
-        
-        turn_speed_pen = self.TURN_SPEED_PENALTY * np.abs((action[agent_idx, 0] * action[agent_idx, 1])) * time_increase_factor
-        penalties['turning_speed'] = turn_speed_pen
-        
-        return penalties
-
-    def _calculate_collision_penalty(self, agent_idx):
-        """Calculate penalty for collisions."""
-        if self.collisions[agent_idx]:
-            self.n_crashes += 1
-            return self.crash_penalty
-        return 0.0
-
-    def _calculate_stagnation_penalty(self, action, agent_idx):
-        """Calculate penalty for not moving (stagnation)."""
-        if np.abs(action[agent_idx, 1]) < 1e-3:
-            return self.crash_penalty  # Make stagnating as bad as crashing
-        return 0.0
-
-    def _calculate_velocity_tracking(self, action, agent_idx, current_s):
-        """Calculate reward for tracking reference velocity."""
-        time_decrease_factor = self._sigmoid(-((self.total_timesteps - self.V_REF_CURRICULUM) / self.DECAY_INTERVAL))
-        v_ref = self.vspline(current_s)
-        return self.VELOCITY_REWARD_SCALE * np.exp(-(v_ref - action[agent_idx, 1]) ** 2) * time_decrease_factor
-
-    def _get_reward(self, action):
-        """
-        Get the reward for the current step
-        action - np.array (num_agents, 2)
-        """
-        if not hasattr(self, "last_s"):
-            self.last_s = [0.0] * self.num_agents
-
-        # Calculate crash penalty that grows over time
-        self.crash_penalty = -(1 + (self.MAX_CRASH_PENALTY - 1) * 
-                            np.tanh(self.total_timesteps / self.CRASH_CURRICULUM))
-
-        reward = 0.0
-        reward_info = {}
-        
-        for i in range(self.num_agents):
-            current_s, _ = (
-                self.track.raceline.spline.calc_arclength_inaccurate(
-                    self.poses_x[i], self.poses_y[i]
-                )
-            )
-            self.last_s[i] = current_s
-        
-        i = self.ego_idx
-        
-        prog_reward, current_s, pcnt = self._calculate_progress_reward(i)
-        reward += prog_reward
-        reward_info['custom/reward_terms/prog'] = prog_reward
-        
-        milestone_reward = self._calculate_milestone_reward(pcnt)
-        reward += milestone_reward
-        reward_info['custom/reward_terms/milestone'] = milestone_reward
-        
-        action_penalties = self._calculate_action_penalties(action, i)
-        for penalty_key, penalty_value in action_penalties.items():
-            reward += penalty_value
-            reward_info[f'custom/reward_terms/{penalty_key}'] = penalty_value
-        
-        collision_penalty = self._calculate_collision_penalty(i)
-        reward += collision_penalty
-        reward_info['custom/reward_terms/collision'] = collision_penalty
-        
-        vel_tracking_reward = self._calculate_velocity_tracking(action, i, current_s)
-        reward += vel_tracking_reward
-        reward_info['custom/reward_terms/vel_tracking'] = vel_tracking_reward
-        
-        stagnation_penalty = self._calculate_stagnation_penalty(action, i)
-        reward += stagnation_penalty
-        reward_info['custom/reward_terms/stagnation'] = stagnation_penalty
-        
-        reward_info['custom/reward_terms/total_timestep_reward'] = reward
-        
-        return reward, reward_info
-    
-    def _position_delta(self):
-        opponent_s, _ = (
-            self.track.centerline.spline.calc_arclength_inaccurate(
-                self.poses_x[1], self.poses_y[1]
-            )
-        )
-        self.last_s[1] = opponent_s
-        s_diff = self.last_s[0] - self.last_s[1]
-        track_length = self.track.centerline.spline.s[-1]
-
-        if s_diff > track_length / 2:
-            s_diff -= track_length
-        elif s_diff < -track_length / 2:
-            s_diff += track_length
-
-        return s_diff
-
-    def _position_reward(self) -> Tuple[float, float]:
-        """
-        Reward for closing distance / gettting further away from opponent
-        and overtake event
-
-        Returns:
-            Tuple[float, float]: (distance reward, overtaking reward)
-        """
-        if not hasattr(self, "last_opp_dist"):
-            self.last_opp_dist = self._position_delta()
-            self.leading = self.last_opp_dist > 0
-            return 0.0, 0.0
-        
-        s_diff = self._position_delta()
-        distance = s_diff - self.last_opp_dist
-        distance_reward = distance * self.position_weight
-
-        leading = s_diff > 0
-        if leading and not self.leading:
-            overtaking_reward = self.overtake_reward
-        elif not leading and self.leading:
-            overtaking_reward = -self.overtake_reward
-        else:
-            overtaking_reward = 0.0
-
-        self.last_opp_dist = s_diff
-        self.leading = leading
-
-        return distance_reward, overtaking_reward
-    
     def step(self, action: np.ndarray) -> Tuple[Dict[str, Any], float, bool, bool, Dict[str, Any]]:
-        """Overriding step for reward calculation purposes"""
-        action *= self.action_range
+        """Overriden for action-dependent rewards and WandB logging"""
+        if self.norm_input:
+            action *= self.action_range
+
         self.sim.step(action)
-
         obs = self.observation_type.observe()
-        self.current_time = self.current_time + self.timestep
+        self.current_time += self.timestep
         self.total_timesteps += 1
-
         self._update_state()
 
         self.render_obs = {
@@ -395,43 +83,323 @@ class F110Multi(F110Env):
         reward, reward_info = self._get_reward(action)
         self.last_action = action
 
-        timeout = ((self.current_time / self.timestep) >= (60.0 / self.timestep)) # TODO: make this a config param
-        self.n_timeouts += int(timeout)
+        timeout = self.current_time >= 60 # TODO: make this configurable
+        self.timeouts += int(timeout)
         done = done or timeout
-        self.last_run_progress = self.total_prog if done else self.last_run_progress
-        info['custom/timeouts'] = self.n_timeouts
-        info['custom/most_recent_progress'] = self.last_run_progress
-        info['custom/crashes'] = self.n_crashes
+
+        self.last_progress = self.total_prog if done else self.last_progress
+        info['custom/timeouts'] = self.timeouts
+        info['custom/last_progress'] = self.last_progress
+        info['custom/crashes'] = self.crashes
+        info['custom/laps'] = self.laps
         info.update(reward_info)
 
         return obs, reward, done, truncated, info
 
+    def reset(self, seed=None, options=None):
+        self.laps += int(self.total_prog)
+        obs, info = super().reset(seed=seed, options=options)
+        
+        self.last_action = np.zeros((self.num_agents, 2))
+        self.stag_count = 0
+        self.total_prog = 0
+        self.total_timesteps = 0
+        self.crashes = 0
+        self.last_progress = 0.0
+        self.last_ckpt_time = 0.0
+        
+        obs, _, _, _, info = self.step(self.last_action)
+        
+        return obs, info
+
+    def _get_reward(self, action: np.ndarray) -> Tuple[float, Dict[str, Any]]:
+        """Reward function with individual terms and overtake rewards"""
+        
+        # Update crash penalty based on curriculum
+        self._update_crash_penalty()
+        
+        # Initialize tracking variables if needed
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        
+        reward_info = {}
+        
+        i = self.ego_idx if hasattr(self, 'ego_idx') else 0
+        
+        current_s_ego, _ = self.track.centerline.spline.calc_arclength_inaccurate(
+            self.poses_x[i], self.poses_y[i]
+        )
+        
+        prog_reward, pcnt = self._get_progress_reward(i, current_s_ego)
+        milestone_reward = self._get_milestone_reward()
+        steer_penalty = self._get_steering_change_penalty(i, action)
+        vel_penalty = self._get_velocity_change_penalty(i, action)
+        turn_speed_penalty = self._get_turn_speed_penalty(i, action)
+        collision_penalty = self._get_collision_penalty(i)
+        stagnation_penalty = self._get_stagnation_penalty(i, action) 
+        overtake_reward = self._get_overtake_reward(i, current_s_ego)
+              
+        
+        total_reward = (
+            prog_reward +
+            milestone_reward +
+            steer_penalty +
+            vel_penalty +
+            turn_speed_penalty +
+            collision_penalty +
+            stagnation_penalty +
+            overtake_reward
+        )
+        
+        reward_info['custom/reward_terms/prog'] = prog_reward
+        reward_info['custom/reward_terms/milestone'] = milestone_reward
+        reward_info['custom/reward_terms/delta_steer'] = steer_penalty
+        reward_info['custom/reward_terms/delta_v'] = vel_penalty
+        reward_info['custom/reward_terms/turning_speed'] = turn_speed_penalty
+        reward_info['custom/reward_terms/collision'] = collision_penalty
+        reward_info['custom/reward_terms/stagnation'] = stagnation_penalty
+        reward_info['custom/reward_terms/overtake'] = overtake_reward
+        reward_info['custom/reward_terms/total_timestep_reward'] = total_reward
+        
+        # Update state for next iteration
+        self.last_s[i] = current_s_ego
+        
+        return total_reward, reward_info
+
+    def _get_overtake_reward(self, ego_idx, current_s_ego):
+        if not hasattr(self, "last_s_opponent"):
+            self.last_s_opponent = None
+        
+        overtake_reward = 0.0 # implicitly skipped for one agent case
+        opp_idx = 1 - ego_idx if self.num_agents == 2 else None
+        
+        if opp_idx is not None:
+            current_s_opp, _ = self.track.centerline.spline.calc_arclength_inaccurate(
+                self.poses_x[opp_idx], self.poses_y[opp_idx]
+            )
+            
+            if self.last_s_opponent is None:
+                self.last_s_opponent = current_s_opp
+                return 0.0
+            
+            last_s_opp = self.last_s_opponent
+            
+            if self.last_s[ego_idx] < last_s_opp and current_s_ego > current_s_opp:
+                if not (current_s_ego < 0.1 * self.track.centerline.spline.s[-1] and 
+                        last_s_opp > 0.9 * self.track.centerline.spline.s[-1]):
+                    overtake_reward = self.overtake_reward
+            
+            elif self.last_s[ego_idx] > last_s_opp and current_s_ego < current_s_opp:
+                if not (last_s_opp < 0.1 * self.track.centerline.spline.s[-1] and 
+                        current_s_ego > 0.9 * self.track.centerline.spline.s[-1]):
+                    overtake_reward = -self.overtake_reward
+            
+            self.last_s_opponent = current_s_opp
+        
+        return overtake_reward
+
+    def _sigmoid(self, x):
+        """Helper function for smooth transitions"""
+        if x < -1e3:
+            return 0
+        if x > 1e3:
+            return 1
+        return 1.0 / (1.0 + np.exp(-x))
+
+    def _get_progress_reward(self, i, current_s):
+        """Calculate progress reward for agent i"""
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        
+        prog = current_s - self.last_s[i]
+        
+        # Account for lapping
+        if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
+            prog += self.track.centerline.spline.s[-1]
+        # Looped backward
+        elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
+            prog -= self.track.centerline.spline.s[-1]
+        
+        pcnt = prog / self.track.centerline.spline.s[-1]
+        prog_reward = pcnt * self.progress_weight
+        
+        # Update total progress
+        self.total_prog += pcnt
+        
+        return prog_reward, pcnt
+
+    def _get_milestone_reward(self):
+        """Calculate milestone reward if threshold is passed"""
+        if self.total_prog > self.milestone:
+            self.milestone += self.milestone_increment
+            try:
+                milestone_reward = self.milestone_reward
+                self.last_checkpoint_time = self.current_time
+                return milestone_reward
+            except:
+                print(f'Error in milestone reward calculation')
+                raise
+        else:
+            return 0.0
+
+    def _get_steering_change_penalty(self, i, action):
+        """Calculate penalty for steering action changes"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.delta_u_curriculum) / self.decay_interval)
+        )
+        steer_delta_pen = self.steer_action_change_penalty * \
+                        np.abs(self.last_action[i, 0] - action[i, 0]) * \
+                        time_increase_factor
+        return steer_delta_pen
+
+    def _get_velocity_change_penalty(self, i, action):
+        """Calculate penalty for velocity action changes"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.delta_u_curriculum) / self.decay_interval)
+        )
+        vel_delta_pen = self.vel_action_change_penalty * \
+                        np.abs(self.last_action[i, 1] - action[i, 1]) * \
+                        time_increase_factor
+        return vel_delta_pen
+
+    def _get_turn_speed_penalty(self, i, action):
+        """Calculate penalty for turning at high speeds"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.delta_u_curriculum) / self.decay_interval)
+        )
+        turn_speed_pen = self.turn_speed_penalty * \
+                        np.abs((action[i, 0] * action[i, 1])) * \
+                        time_increase_factor
+        return turn_speed_pen
+
+    def _get_collision_penalty(self, i):
+        """Calculate collision penalty for agent i"""
+        if self.collisions[i]:
+            self.crashes += 1 if hasattr(self, 'crashes') else setattr(self, 'crashes', 1)
+            return self.crash_penalty
+        else:
+            return 0.0
+
+    def _get_stagnation_penalty(self, i, action):
+        """Calculate stagnation penalty for low velocity"""
+        if np.abs(action[i, 1]) < 1e-3:
+            return self.crash_penalty  # Same magnitude as crash penalty
+        else:
+            return 0.0
+
+    def _update_crash_penalty(self):
+        """Update the crash penalty value based on curriculum"""
+        self.crash_penalty = -(1 + (self.max_crash_penalty - 1) * 
+                            np.tanh(self.total_timesteps / self.crash_curriculum))
+
+    def _init_rews(self):
+        for k, v in self.config['reward'].items():
+            setattr(self, k, v)
+
+    def _set_lines(self, track: str) -> Tuple[np.ndarray, np.ndarray]:
+        track_dir = find_track_dir(track)
+        raceline_file = os.path.join(track_dir, f'{track}_raceline.csv')
+        centerline_file = os.path.join(track_dir, f'{track}_centerline.csv')
+        return np.loadtxt(raceline_file, delimiter=';').astype(np.float32), np.loadtxt(centerline_file, delimiter=',').astype(np.float32)
+
+    def _calc_vspline(self) -> CubicSpline:
+        svs = np.zeros((len(self.raceline), 2), dtype=np.float32)
+        for i in range(len(self.raceline)):
+            x, y = self.raceline[i, 1], self.raceline[i, 2]
+            svs[i] = np.array([
+                self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0],
+                self.raceline[i, 5]
+            ])
+        svs = svs[svs[:, 0].argsort()][:-1]
+
+        s_diff = np.diff(svs[:, 0])
+        mask = np.ones(len(svs), dtype=bool)
+        mask[1:] = s_diff > 0.0
+
+        masked = svs[mask]
+        return CubicSpline(masked[:, 0], masked[:, 1])
+
+    def _calc_yspline(self) -> CubicSpline:
+        ys = np.zeros((len(self.raceline), 2), dtype=np.float32)
+        ys[:, 0] = self.raceline[:, 0] # s
+        ys[:, 1] = self.raceline[:, 3] # yaw
+        ys = ys[ys[:, 0].argsort()][:-1]
+        return CubicSpline(ys[:, 0], ys[:, 1])
+
+    def _check_done(self):
+        """
+        Check if the current rollout is done
+
+        Args:
+            None
+
+        Returns:
+            done (bool): whether the rollout is done
+            toggle_list (list[int]): each agent's toggle list for crossing the finish zone
+        """
+
+        # this is assuming 2 agents
+        # TODO: switch to maybe s-based
+        left_t = 2
+        right_t = 2
+
+        poses_x = np.array(self.poses_x) - self.start_xs
+        poses_y = np.array(self.poses_y) - self.start_ys
+        delta_pt = np.dot(self.start_rot, np.stack((poses_x, poses_y), axis=0))
+        temp_y = delta_pt[1, :]
+        idx1 = temp_y > left_t
+        idx2 = temp_y < -right_t
+        temp_y[idx1] -= left_t
+        temp_y[idx2] = -right_t - temp_y[idx2]
+        temp_y[np.invert(np.logical_or(idx1, idx2))] = 0
+
+        dist2 = delta_pt[0, :] * 2 + temp_y*2
+        closes = dist2 <= 0.1
+        for i in range(self.num_agents):
+            if closes[i] and not self.near_starts[i]:
+                self.near_starts[i] = True
+                self.toggle_list[i] += 1
+            elif not closes[i] and self.near_starts[i]:
+                self.near_starts[i] = False
+                self.toggle_list[i] += 1
+            self.lap_counts[i] = self.toggle_list[i] // 2
+            if self.toggle_list[i] < 4:
+                self.lap_times[i] = self.current_time
+
+        ## NEW -using self.total_prog to judge laps, will terminate episode after 3 laps
+        done = (self.collisions[self.ego_idx]) or int(self.total_prog) >= 3 # or np.all(self.toggle_list >= 4)
+        # self.laps += int(np.all(self.toggle_list >= 4)) # this is wrong becuse it counts collisions too (not sure about this comment)
+
+        return bool(done), self.toggle_list >= 4
+         
 class F110MultiView(gym.Wrapper):
+    """Single-agent interface for F110Multi environment"""
+    
     def __init__(self, env: F110Multi, opponents: Optional[List[OpponentDriver]], agent_idx: int = 0):
-        """Interface for a single-agent policy to interact with F110Multi"""
         super().__init__(env)
         self.env = env
         self.opponents = opponents
         self.opponent = np.random.choice(opponents) if opponents else None
         self.agent_idx = agent_idx
-
-        self.ego_idx, self.opp_idx = 0, 1 # hardcoded harmlessly
-
+        self.ego_idx, self.opp_idx = 0, 1
+        
         self.action_space = gym.spaces.Box(
             low=-1.0,
             high=1.0,
             shape=(1, 2),
             dtype=np.float32,
         )
-        self.action_range = np.array([self.env.unwrapped.params['s_max'], self.env.unwrapped.params['v_max']])
-
+        
+        self.observation_type = self.env.unwrapped.config.get('observation_config', {}).get('type', 'frenet_rl')
+        self._setup_observation_space()
+    
+    def _setup_observation_space(self):
+        """Configure observation space based on observation type"""
         large_num = 1e30
         odom_length = 8
         scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
         scan_range = self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
-
-
-        self.observation_type = self.env.unwrapped.config['observation_config']['type']
+        
         if self.observation_type == 'lidar_conv':
             self.observation_space = gym.spaces.Dict({
                 'scan': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
@@ -441,35 +409,41 @@ class F110MultiView(gym.Wrapper):
             self.observation_space = gym.spaces.Box(
                 low=-large_num, high=large_num, shape=(1, scan_size + odom_length), dtype=np.float32
             )
-        elif self.observation_type == 'frenet_marl':
+        elif self.observation_type == 'frenet_rl' or self.observation_type == 'frenet_marl':
             self.observation_space = gym.spaces.Dict({
                 'scan': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
                 'pose': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
                 'vel': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
                 'heading': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 2), dtype=np.float32),
             })
-
+    
     def reset(self, opponent_idx=None, seed=None, options=None) -> Tuple[dict, dict]:
+        """Reset environment and select opponent"""
         if self.opponents:
-            self.opponent = self.opponents[opponent_idx] if opponent_idx else np.random.choice(self.opponents)
+            self.opponent = self.opponents[opponent_idx] if opponent_idx is not None else np.random.choice(self.opponents)
         
         obs, info = self.env.reset(seed=seed, options=options)
         return self._ego_observe(obs, self.ego_idx), info
     
     def step(self, action: np.ndarray) -> Tuple[dict, float, bool, bool, dict]:
+        """Step environment with ego action and opponent policy"""
         obs = self.env.unwrapped.observation_type.observe()
+        
         opp_obs = self._ego_observe(obs, self.opp_idx)
         opponent_action = self.opponent(opp_obs) if self.opponent else np.zeros(2)
-
+        
         action_full = np.zeros((2, 2), dtype=np.float32)
-        action_full[0, :] = action
-        action_full[1, :] = opponent_action
-
+        action_full[self.ego_idx, :] = action.squeeze()
+        action_full[self.opp_idx, :] = opponent_action
+        
+        # Step environment
         obs, reward, done, truncated, info = self.env.step(action_full)
         obs = self._ego_observe(obs, self.ego_idx)
+        
         return obs, reward, done, truncated, info
-
+    
     def _ego_observe(self, obs: dict, idx: int) -> dict:
+        """Extract single agent observation from multi-agent observation"""
         if self.observation_type == 'lidar_conv':
             return {
                 'scan': obs['scan'][idx:idx+1],
@@ -477,7 +451,7 @@ class F110MultiView(gym.Wrapper):
             }
         elif self.observation_type == 'mlp':
             return obs[idx:idx+1]
-        elif self.observation_type == 'frenet_marl':
+        elif self.observation_type == 'frenet_rl' or self.observation_type == 'frenet_marl':
             return {
                 'scan': obs['scan'][idx:idx+1],
                 'pose': obs['pose'][idx:idx+1],

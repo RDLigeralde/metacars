@@ -123,7 +123,6 @@ class F110EnvDR(F110Env):
         self.render_mode = render_mode
 
         if config['normalize_input']:
-            print('running with normalized input')
             self.action_space = gym.spaces.Box(
                 low=-1.0,
                 high=1.0,
@@ -155,7 +154,6 @@ class F110EnvDR(F110Env):
         self.last_run_progress = 0.0
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
-        print(self.action_space, self.action_range)
 
 
     def _get_yaw_spline(self, raceline_info):
@@ -290,144 +288,173 @@ class F110EnvDR(F110Env):
         info.update(reward_info)
 
         return obs, reward, done, truncated, info
-
-
     def _sigmoid(self, x):
-        # To get rid of warning
+        """Helper function for smooth transitions"""
         if x < -1e3:
             return 0
         if x > 1e3:
             return 1
         return 1.0 / (1.0 + np.exp(-x))
-    VEL_ACTION_CHANGE_PENALTY = 0 #-0.5
-    STEER_ACTION_CHANGE_PENALTY = 0 #-1.0
+
+    def _get_progress_reward(self, i, current_s):
+        """Calculate progress reward for agent i"""
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        
+        prog = current_s - self.last_s[i]
+        
+        # Account for lapping
+        if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
+            prog += self.track.centerline.spline.s[-1]
+        # Looped backward
+        elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
+            prog -= self.track.centerline.spline.s[-1]
+        
+        pcnt = prog / self.track.centerline.spline.s[-1]
+        prog_reward = pcnt * self.PROGRESS_WEIGHT
+        
+        # Update total progress
+        self.total_prog += pcnt
+        
+        return prog_reward, pcnt
+
+    def _get_milestone_reward(self):
+        """Calculate milestone reward if threshold is passed"""
+        if self.total_prog > self.milestone:
+            self.milestone += self.MILESTONE_INCREMEMENT
+            try:
+                milestone_reward = self.MILESTONE_REWARD
+                self.last_checkpoint_time = self.current_time
+                return milestone_reward
+            except:
+                raise Exception('div by 0')
+        else:
+            return 0.0
+
+    def _get_steering_change_penalty(self, i, action):
+        """Calculate penalty for steering action changes"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
+        )
+        steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * \
+                        np.abs(self.last_action[i, 0] - action[i, 0]) * \
+                        time_increase_factor
+        return steer_delta_pen
+
+    def _get_velocity_change_penalty(self, i, action):
+        """Calculate penalty for velocity action changes"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
+        )
+        vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * \
+                        np.abs(self.last_action[i, 1] - action[i, 1]) * \
+                        time_increase_factor
+        return vel_delta_pen
+
+    def _get_turn_speed_penalty(self, i, action):
+        """Calculate penalty for turning at high speeds"""
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
+        )
+        turn_speed_pen = self.TURN_SPEED_PENALTY * \
+                        np.abs((action[i, 0] * action[i, 1])) * \
+                        time_increase_factor
+        return turn_speed_pen
+
+    def _get_collision_penalty(self, i):
+        """Calculate collision penalty for agent i"""
+        if self.collisions[i]:
+            self.n_crashes += 1
+            return self.crash_penalty
+        else:
+            return 0.0
+
+    def _get_stagnation_penalty(self, i, action):
+        """Calculate stagnation penalty for low velocity"""
+        if np.abs(action[i, 1]) < 1e-3:
+            return self.crash_penalty  # Same magnitude as crash penalty
+        else:
+            return 0.0
+
+    def _update_crash_penalty(self):
+        """Update the crash penalty value based on curriculum"""
+        self.crash_penalty = -(1 + (self.MAX_CRASH_PENALTY - 1) * 
+                            np.tanh(self.total_timesteps / self.CRASH_CURRICULUM))
+
+    def _get_reward(self, action):
+        """
+        Get the reward for the current step
+        action - np.array (num_agents, 2)
+        """
+        # Update crash penalty based on curriculum
+        self._update_crash_penalty()
+        
+        # Initialize tracking variables if needed
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        
+        total_reward = 0.0
+        reward_info = {}
+        
+        for i in range(self.num_agents):
+            # Get current position on track
+            current_s, _ = self.track.centerline.spline.calc_arclength_inaccurate(
+                self.poses_x[i], self.poses_y[i]
+            )
+            
+            # Calculate individual reward components
+            prog_reward, pcnt = self._get_progress_reward(i, current_s)
+            milestone_reward = self._get_milestone_reward()
+            steer_penalty = self._get_steering_change_penalty(i, action)
+            vel_penalty = self._get_velocity_change_penalty(i, action)
+            turn_speed_penalty = self._get_turn_speed_penalty(i, action)
+            collision_penalty = self._get_collision_penalty(i)
+            stagnation_penalty = self._get_stagnation_penalty(i, action)
+            
+            # Sum all reward components
+            agent_reward = (
+                prog_reward +
+                milestone_reward +
+                steer_penalty +
+                vel_penalty +
+                turn_speed_penalty +
+                collision_penalty +
+                stagnation_penalty
+            )
+
+   
+            total_reward += agent_reward
+            
+            # Store reward info for logging
+            reward_info['custom/reward_terms/prog'] = prog_reward
+            reward_info['custom/reward_terms/milestone'] = milestone_reward
+            reward_info['custom/reward_terms/delta_steer'] = steer_penalty
+            reward_info['custom/reward_terms/delta_v'] = vel_penalty
+            reward_info['custom/reward_terms/turning_speed'] = turn_speed_penalty
+            reward_info['custom/reward_terms/collision'] = collision_penalty
+            reward_info['custom/reward_terms/stagnation'] = stagnation_penalty
+            reward_info['custom/reward_terms/total_timestep_reward'] = total_reward
+            
+            # Update state for next iteration
+            self.last_s[i] = current_s
+        
+        return total_reward, reward_info
+
+    # Class attribute definitions (constants)
+    VEL_ACTION_CHANGE_PENALTY = 0  # -0.5
+    STEER_ACTION_CHANGE_PENALTY = 0  # -1.0
     STAGNATION_PENALTY = -0.1
-    STAGNATION_CUTOFF = 0.02 # delta s as a fraction of total track length
-    # STAG_TIMEOUT = 20 # number of consecutive stag penalties required to trigger a timeout (not using anymore)
+    STAGNATION_CUTOFF = 0.02  # delta s as a fraction of total track length
     VELOCITY_REWARD_SCALE = 0.0
-    HEADING_PENALTY = -1.0 # ended up slowing down training significantly
-    # CRASH_PENALTY = -1000
+    HEADING_PENALTY = -1.0
     PROGRESS_WEIGHT = 100
     CRASH_CURRICULUM = int(1e5)
     DELTA_U_CURRICULUM = int(1e6)
     V_REF_CURRICULUM = int(1e6)
     MILESTONE_REWARD = 5
     DECAY_INTERVAL = 1e5
-    MAX_CRASH_PENALTY = 1 # now staying constant
-    TURN_SPEED_PENALTY = 0 #-0.1
-    def _get_reward(self, action):
-        """
-        Get the reward for the current step
-        action - np.array (num_agents, 2)
-        """
-        # reward for progress compared to last step - imported from base environment
-        # penalty for each crashed agent - imported from base environment
-        # penalty for norm of action differences from last time step - NEW
-        # stagnation penalty - every timestep, add a penalty if we've moved below a certain amount - NEW
-        # ^ for above, will also call an episode termination if we've incurred this penalty consecutively
-        # for self.STAG_CUTOFF time steps
-        # penalty for not tracking reference velocities - NEW
-        # penalty for being significantly off from reference yaw - NEW (essentially want to prevent turning around)
-        # Purely collaborative reward if more than 1 agent
-
-        # NOTE: can't make some penalties negative b/c otherwise agent learns to just crash to get a quick
-        # negative reward
-        self.crash_penalty = -(1 + (self.MAX_CRASH_PENALTY - 1) * 
-                               np.tanh(self.total_timesteps / self.CRASH_CURRICULUM)) # gradually grows between 1 and max value
-
-        if not hasattr(self, "last_s"):
-            self.last_s = [0.0] * self.num_agents
-
-        reward = 0.0
-        reward_info = {}
-        for i in range(self.num_agents):
-            current_s, _ = (
-                self.track.centerline.spline.calc_arclength_inaccurate(
-                    self.poses_x[i], self.poses_y[i]
-                )
-            )
-
-            prog = current_s - self.last_s[i]
-            # account for lapping
-            if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
-                prog += self.track.centerline.spline.s[-1]
-            # looped backward
-            elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
-                prog -= self.track.centerline.spline.s[-1]
-    
-
-            pcnt = prog / self.track.centerline.spline.s[-1]
-
-            prog_reward = pcnt * self.PROGRESS_WEIGHT
-            reward += prog_reward
-            reward_info['custom/reward_terms/prog'] = prog_reward
-            # want to see this grow during training, stores percentage of track traveleed
-            self.total_prog += pcnt
-            if self.total_prog > self.milestone:
-                self.milestone += self.MILESTONE_INCREMEMENT
-                try:
-                    reward += self.MILESTONE_REWARD #/ (self.current_time - self.last_checkpoint_time)
-                    reward_info['custom/reward_terms/milestone'] = self.MILESTONE_REWARD #/ (self.current_time - self.last_checkpoint_time)
-                    self.last_checkpoint_time = self.current_time
-                except:
-                    print(f'problem pose: {self.poses_x[i]}, {self.poses_y[i]}')
-                    print(f'staring pose: {self.start_xs[i]}, {self.start_ys[i]}')
-                    print(f'{current_s}, {self.last_s[i]}, {self.current_time}, {self.last_checkpoint_time} on fail')
-                    raise Exception('div by 0')
-            else:
-               reward_info['custom/reward_terms/milestone'] = 0.0 
-                
-            # reward += self.ACTION_CHANGE_PENALTY * 1 / (np.linalg.norm(action[i] - self.last_action[i], 2) + 1)
-            
-            # rework the action change penalty so that it works its way up from 0 at the start of training
-            # using a sigmoid
-            # print(np.abs(self.last_action[i, 0] - action[i, 0]))
-            time_increase_factor = self._sigmoid(((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL))
-            steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * np.abs(self.last_action[i, 0] - action[i, 0]) * time_increase_factor
-            reward += steer_delta_pen
-            reward_info['custom/reward_terms/delta_steer'] = steer_delta_pen
-
-            vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * np.abs(self.last_action[i, 1] - action[i, 1]) * time_increase_factor
-            reward += vel_delta_pen
-            reward_info['custom/reward_terms/delta_v'] = vel_delta_pen
-
-            turn_speed_pen = self.TURN_SPEED_PENALTY * np.abs((action[i, 0] * action[i, 1])) * time_increase_factor
-            reward += turn_speed_pen
-            reward_info['custom/reward_terms/turning_speed'] = turn_speed_pen
-
-            if self.collisions[i]:
-                reward += self.crash_penalty
-                reward_info['custom/reward_terms/collision'] = self.crash_penalty
-                self.n_crashes += 1 # hope to see this eventually stagnate in logging
-            else:
-                reward_info['custom/reward_terms/collision'] = 0.0
-            
-            ## velocity tracing for a warm start - want to wean this off to let policy eventually learn potentially
-            ## better 
-            time_decrease_factor = self._sigmoid(-((self.total_timesteps - self.V_REF_CURRICULUM) / self.DECAY_INTERVAL))
-            # v_ref = self.vspline(current_s)
-            # maxes out when v_ref = v_action
-            # vel_track_reward = self.VELOCITY_REWARD_SCALE * np.exp(-(v_ref - action[i, 1]) ** 2)  * time_decrease_factor
-            # reward += vel_track_reward
-            # reward_info['custom/reward_terms/vel_tracking'] = vel_track_reward
-
-            # yaw_ref = self.yaw_spline(current_s)
-            # if abs(self.poses_theta[i] - yaw_ref) > np.deg2rad(75):
-            #     reward += HEADING_PENALTY
-            # print(action)
-            if np.abs(action[i, 1]) < 1e-3 :
-                # print('stagnating')
-                stag_penalty = self.crash_penalty # self.timestep * 
-                reward += stag_penalty # make stagnating for a second just as bad as crashing
-                reward_info['custom/reward_terms/stagnation'] = stag_penalty
-            else:
-                reward_info['custom/reward_terms/stagnation'] = 0.0
-
-            reward_info['custom/reward_terms/total_timestep_reward'] = reward
-            
-            self.last_s[i] = current_s
-            
-        return reward, reward_info
+    MAX_CRASH_PENALTY = 1
+    TURN_SPEED_PENALTY = 0  # -0.1
 
     def _reset_pos(self, seed=None, options=None):
         '''

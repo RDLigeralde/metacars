@@ -1,21 +1,19 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 2
-  num_envs:
-    count: 8 # set -1 to use number of cpu cores
-    type: dummy # subproc or dummy
-  num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
-  num_beams: 540 # number of lidar beams
-  timestep: 0.01
-  observation_config:
-    type: frenet_rl # need the nested dict for the observation config
-  reset_config:
-    type: rl_random_static
-  control_input: ['speed', 'steering_angle']
-  normalize_input: True
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
-
+map: levine # either single map or dir to be sampled from in domain randomization
+num_agents: 1
+num_envs:
+  count: 8 # set -1 to use number of cpu cores
+  type: dummy # subproc or dummy
+num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
+num_beams: 540 # number of lidar beams
+timestep: 0.01
+observation_config:
+  type: frenet_rl # need the nested dict for the observation config
+reset_config:
+  type: rl_random_static
+control_input: ['speed', 'steering_angle']
+render_mode: null # set null to disable rendering: only for single env eval / debugging
 car:
   # dr_param_ex:
   #   min: x
@@ -42,28 +40,28 @@ rewards:
   normalize_rewards: False
 
   velocity_reward_scale: 0.0
-  vel_action_change_penalty: 0  # -0.5
-  steer_action_change_penalty: -0.05  # -1.0
-  turn_speed_penalty: 0  # -0.1
+  turn_speed_penalty: 0
+  vel_action_change_penalty: 0
+  steer_action_change_penalty: -0.05
 
   stagnation_penalty: -0.1
-  stagnation_cutoff: 0.02  # delta s as a fraction of total track length
-  heading_penalty: -1.0
+  stagnation_cutoff: 0.02
 
+  heading_penalty: -1.0
   progress_weight: 100
-  milestone_reward: 5
-  milestone_increment: 0.1
-  milestone: 0.1
-  
-  decay_interval: 100000
+
   crash_curriculum: 100000
+  decay_interval: 100000
   delta_u_curriculum: 1000000
   v_ref_curriculum: 1000000
 
-  crash_penalty: -1.0
   max_crash_penalty: 1
+  
+  milestone_reward: 10
+  milestone: 0.1
+  milestone_increment: 0.1
 
-  overtake_reward: 25.0
+  overtaking_reward: 25.0
 
 ppo_params:
   init_path: null # if resuming a run
@@ -83,7 +81,6 @@ ppo_params:
   max_grad_norm: 0.5
   use_sde: False
   sde_sample_freq: -1
-
 train_params:
   total_timesteps: 2_500_000
   save_interval: 500_000 # set large to only save last policy
@@ -92,6 +89,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
-  project_name: null # set null to disable wandb
-  run_name: null
+  log_tensorboard: True
+  project_name: convtest # set null to disable wandb
+  run_name: frenet_rl_menv
