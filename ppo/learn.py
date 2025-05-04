@@ -1,6 +1,7 @@
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
+from rl_env import F110EnvLegacy
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
@@ -19,6 +20,13 @@ def train(
     yml_name: str,
     run_name: str,
 ):
+    # Register the custom environment first
+    # not sure why __init__.py is not being called
+    gym.register(
+        id="f1tenth-v0-legacy",
+        entry_point="rl_env:F110EnvLegacy",
+    )
+    
     model_save_freq = train_args.pop('save_interval')
     if log_args['project_name']:
         run = wandb.init(
@@ -47,7 +55,13 @@ def train(
 
     
     def make_env():
-        base = gym.make('ppo:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
+        # Create the environment
+        base = gym.make(
+            'f1tenth-v0-legacy', 
+            config=env_args, 
+            render_mode=render_mode
+        )
+        
         return Monitor(base)
     
     recurrent = ppo_args.pop('recurrent')
@@ -58,7 +72,8 @@ def train(
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
-    norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
+    #norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
+    norm_obs, norm_rew = False, False
     if num_envs == 1:
         env = make_env()
         if norm_obs or norm_rew:

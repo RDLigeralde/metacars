@@ -1,24 +1,24 @@
 world:
   seed: 42
-map: levine # either single map or dir to be sampled from in domain randomization
-num_agents: 1
-num_envs:
-  count: 8 # set -1 to use number of cpu cores
-  type: dummy # subproc or dummy
-num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
-num_beams: 540 # number of lidar beams
-timestep: 0.01
-observation_config:
-  type: frenet_rl # need the nested dict for the observation config
-reset_config:
-  type: rl_random_static
-control_input: ['speed', 'steering_angle']
-render_mode: null # set null to disable rendering: only for single env eval / debugging
+  map: levine # either single map or dir to be sampled from in domain randomization
+  num_agents: 1
+  num_envs:
+    count: 8 # set -1 to use number of cpu cores
+    type: dummy # subproc or dummy
+  num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
+  num_beams: 540 # number of lidar beams
+  timestep: 0.01
+  observation_config:
+    type: frenet_rl # need the nested dict for the observation config
+  reset_config:
+    type: rl_random_static
+  control_input: ['speed', 'steering_angle']
+  render_mode: null # set null to disable rendering: only for single env eval / debugging
 car:
   # dr_param_ex:
   #   min: x
   #   max: y
-  mu: 1.0489
+  mu: 0.8
   C_Sf: 4.718
   C_Sr: 5.4562
   width: 0.31
@@ -26,8 +26,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -6.0
-  v_max: 6.0
+  v_min: -4.0
+  v_max: 4.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189
@@ -57,11 +57,11 @@ rewards:
 
   max_crash_penalty: 1
   
-  milestone_reward: 10
+  milestone_reward: 5
   milestone: 0.1
   milestone_increment: 0.1
 
-  overtaking_reward: 25.0
+  overtaking_reward: 0.0
 
 ppo_params:
   init_path: null # if resuming a run
@@ -91,4 +91,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: convtest # set null to disable wandb
-  run_name: frenet_rl_menv
+  run_name: iwannakms

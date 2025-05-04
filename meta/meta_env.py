@@ -375,12 +375,16 @@ class F110Multi(F110Env):
 class F110MultiView(gym.Wrapper):
     """Single-agent interface for F110Multi environment"""
     
-    def __init__(self, env: F110Multi, opponents: Optional[List[OpponentDriver]], agent_idx: int = 0):
+    def __init__(
+        self, 
+        env: F110Multi, 
+        opponents: 
+        Optional[List[OpponentDriver]], 
+    ):
         super().__init__(env)
         self.env = env
         self.opponents = opponents
         self.opponent = np.random.choice(opponents) if opponents else None
-        self.agent_idx = agent_idx
         self.ego_idx, self.opp_idx = 0, 1
         
         self.action_space = gym.spaces.Box(

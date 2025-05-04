@@ -132,8 +132,8 @@ class Track:
             )
 
             occupancy_map = np.array(image).astype(np.float32)
-            occupancy_map[occupancy_map <= 128] = 0.0
-            occupancy_map[occupancy_map > 128] = 255.0
+            occupancy_map[occupancy_map <= 250] = 0.0
+            occupancy_map[occupancy_map > 250] = 255.0
 
             # if exists, load centerline
             if (track_dir / f"{track}_centerline.csv").exists():

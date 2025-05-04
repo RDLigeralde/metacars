@@ -6,7 +6,7 @@ world:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
-  num_beams: 1080 # number of lidar beams
+  num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config: 
     type: frenet_rl # need the nested dict for the observation config
@@ -20,7 +20,7 @@ car:
   # dr_param_ex:
   #  min: x
   #  max: y
-  mu: 0.6
+  mu: 0.8
   C_Sf: 4.718
   C_Sr: 5.4562
   width: 0.31
@@ -65,5 +65,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: levine_4ms_clean # set null to disable wandb
+  project_name: convtest # set null to disable wandb
   run_name: fixed_map

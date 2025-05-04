@@ -1,4 +1,4 @@
-from rl_env import F110Ego, F110EnvDR
+from rl_env import F110EnvDR
 import gymnasium as gym
 import numpy as np
 

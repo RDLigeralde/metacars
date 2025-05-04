@@ -21,74 +21,7 @@ class OpponentDriver:
         """Drive the car: implemented in subclasses"""
         return np.zeros(2)
 
-class F110Ego(gym.Wrapper):
-    def __init__(self, env, opps: List[OpponentDriver] = None):
-        """
-        f1tenth env wrapper: action space only for ego,
-        supports self-play against fixed
-        """
-        super().__init__(env)
-        self.env = env
-        self.ego_idx = env.unwrapped.ego_idx
-        self.num_agents = env.unwrapped.num_agents
-
-        self.action_space = env.unwrapped.action_type.space
-        self.observation_type = env.unwrapped.observation_type
-        self.observation_space = env.unwrapped.observation_space
-
-        self.opp_idxs = [i for i in range(self.num_agents) if i != self.ego_idx]
-        self.opps = opps if opps else [OpponentDriver()] * (self.num_agents - 1)
-
-        self.action_space = gym.spaces.Box(
-            low=-1.0,
-            high=1.0,
-            shape=(1,2),
-            dtype=np.float32,
-        )
-
-        # reward scaling
-        self.r_max = self.env.unwrapped.config['params']['v_max'] * self.env.unwrapped.timestep # max distance that can be traveled in one step call
-
-    def step(self, action: np.ndarray):
-        """Steps using provided action + opponent policies"""
-        actions = np.zeros((self.num_agents, 2))
-        actions *= np.array([self.env.unwrapped.params['s_max'], self.env.unwrapped.params['v_max']])
-        actions[self.ego_idx] = action
-
-        opp_idx = 0
-        obs = self.observation_type.observe()
-        for i in self.opp_idxs:
-            actions[i] = self.opps[opp_idx].drive(obs)
-
-        return self.env.step(actions)
-
-    def update_opponent(self, opp, idx):
-        """Update opponent policy"""
-        self.opps[idx] = opp
-
-    def _get_reward(self):
-        """
-        Same logic as f110 applied to ego agent only
-        Will definitely want to play with this later
-        (ex: laptime reward upon loop completion, consecutive loop completion, etc)
-        """
-        if not hasattr(self, "last_s"):
-            self.last_s = 0.0
-
-        current_s, _ = (
-            self.track.centerline.spline.calc_arclength_inaccurate(
-                self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
-            )
-        )
-
-        prog = current_s - self.last_s
-        if prog > 0.9 * self.track.centerline.spline.s[-1]:
-            prog = (self.track.centerline.spline.s[-1] - self.last_s[i]) + current_s
-
-        self.last_s = current_s
-        return prog / self.r_max if not self.collisions[self.ego_idx] else -1.0
-
-class F110EnvDR(F110Env):
+class F110EnvLegacy(F110Env):
     def __init__(
         self,
         config: dict,
@@ -165,21 +98,21 @@ class F110EnvDR(F110Env):
         return CubicSpline(data[:, 0], data[:, 1])
     
     def _get_velocity_spline(self, raceline_info):
-        sv_values = []
-        for i in range(raceline_info.shape[0]):
-            x = raceline_info[i, 1]
-            y = raceline_info[i, 2]
-            sv_values.append([self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0],
-                            raceline_info[i, 5]])
-        sv_values = np.array(sv_values)
-        sv_values = sv_values[sv_values[:, 0].argsort()]
-        sv_values = sv_values[:-1]
+        svs = np.zeros((len(raceline_info), 2), dtype=np.float32)
+        for i in range(len(raceline_info)):
+            x, y = raceline_info[i, 1], raceline_info[i, 2]
+            svs[i] = np.array([
+                self.track.centerline.spline.calc_arclength_inaccurate(x, y)[0],
+                raceline_info[i, 5]
+            ])
+        svs = svs[svs[:, 0].argsort()][:-1]
 
-        s_diff = np.diff(sv_values[:, 0])
-        mask = np.ones(len(sv_values), dtype=bool)
-        mask[1:] = s_diff > 0
+        s_diff = np.diff(svs[:, 0])
+        mask = np.ones(len(svs), dtype=bool)
+        mask[1:] = s_diff > 0.0
 
-        cleaned_values = sv_values[mask]
+        masked = svs[mask]
+        return CubicSpline(masked[:, 0], masked[:, 1])
 
         if len(cleaned_values) < 4:
             print("Warning: Not enough unique points for cubic spline. Using linear interpolation.")
@@ -442,7 +375,7 @@ class F110EnvDR(F110Env):
 
     # Class attribute definitions (constants)
     VEL_ACTION_CHANGE_PENALTY = 0  # -0.5
-    STEER_ACTION_CHANGE_PENALTY = 0  # -1.0
+    STEER_ACTION_CHANGE_PENALTY = -0.05  # -1.0
     STAGNATION_PENALTY = -0.1
     STAGNATION_CUTOFF = 0.02  # delta s as a fraction of total track length
     VELOCITY_REWARD_SCALE = 0.0
@@ -703,19 +636,3 @@ class F110EnvDR(F110Env):
         # self.renderer.update_occupancy(self.track)
         self.renderer.update(state=self.render_obs)
         return self.renderer.render()
-
-class F110EgoDR(F110Ego):
-    def __init__(
-        self,
-        config: dict,
-        opps: List[OpponentDriver] = None,
-        render_mode: str = None,
-        **kwargs
-    ):
-        """
-        F110Ego with support for domain randomization
-        """
-        env = F110EnvDR(config, render_mode, **kwargs)
-        super().__init__(env, opps)
-        self.config_input = config
-        self.params_input = config['params']
