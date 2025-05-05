@@ -1,6 +1,6 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from in domain randomization
+  map: lup # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 8 # set -1 to use number of cpu cores
@@ -34,6 +34,7 @@ reward_params:
   initial_crash_penalty: -1.0
   milestone_increment: 0.1
   initial_milestone: 0.1
+  overtake_reward: 10.0
 
 car:
   # dr_param_ex:
