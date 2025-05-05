@@ -1,8 +1,9 @@
 from f1tenth_gym.envs.track.utils import find_track_dir
 from meta.opponents.opponent import OpponentDriver
 from ppo.utils import get_cfg_dicts
-import gymnasium as gym
 
+from pyglet.gl import GL_POINTS
+import gymnasium as gym
 from numba import njit
 import numpy as np
 
@@ -43,7 +44,6 @@ def first_point_on_trajectory_intersecting_circle(point, radius, trajectory, t=0
     first_i = None
     first_p = None
     trajectory = np.ascontiguousarray(trajectory)
-    point = point.astype(trajectory.dtype)  # Ensure point has same dtype as trajectory
     
     for i in range(start_i, trajectory.shape[0]-1):
         start = trajectory[i,:]
@@ -144,11 +144,36 @@ class PurePursuit(OpponentDriver):
         waypoints_dir = find_track_dir(track)
         waypoints_file = f'{waypoints_dir}/{track}_raceline_pp.csv'
         self.waypoints = self._load_waypoints(waypoints_file)
+        
+        # Initialize empty list for drawn waypoints
+        self.drawn_waypoints = []
 
     def _load_waypoints(self, waypoints_file):
         waypoints = np.loadtxt(waypoints_file, delimiter=';').astype(np.float32)
         return waypoints
 
+    def render_waypoints(self, e):
+        """
+        Update waypoints being drawn by EnvRenderer
+        """
+        # Get waypoints (x, y) coordinates
+        points = self.waypoints[:, 1:3]
+        
+        # Scale points for visualization
+        scaled_points = 50. * points
+        
+        # Draw each waypoint
+        for i in range(points.shape[0]):
+            if len(self.drawn_waypoints) < points.shape[0]:
+                # Add new point to batch if it doesn't exist yet
+                b = e.batch.add(1, GL_POINTS, None, 
+                               ('v3f/stream', [scaled_points[i, 0], scaled_points[i, 1], 0.]),
+                               ('c3B/stream', [183, 193, 222]))  # Light blue-gray color
+                self.drawn_waypoints.append(b)
+            else:
+                # Update existing point
+                self.drawn_waypoints[i].vertices = [scaled_points[i, 0], scaled_points[i, 1], 0.]
+                
     def _get_current_waypoint(self, position):
         """
         gets the current waypoint to follow
@@ -199,15 +224,11 @@ class PurePursuit(OpponentDriver):
         return controls
     
 def main():
-    gym.register(
-        id="chainer",
-        entry_point="ppo.rl_env:F110Multi",  # Updated to F110Multi
-    )
     synthbrake = 0.35
     
     conf = {
         'wheelbase': 0.5,
-        'lookahead': 0.4,
+        'lookahead': 0.425,
         'max_reacquire': 1.0,
         'synthbrake': synthbrake,
     }
@@ -220,13 +241,21 @@ def main():
     conf['waypoints'] = env_args['map']  # Add track name for waypoints
     
     pp = PurePursuit(conf)
+
+    # TODO: this doesn't work yet
+    def render_callback(env_renderer):
+        print("Rendering waypoints...")
+        pp.render_waypoints(env_renderer)
+
     env = gym.make(
-        'chainer', 
+        'F110Multi-v0', 
         config=env_args, 
         render_mode='human'
     )
+    env.unwrapped.add_render_callback(render_callback)
 
     obs, _ = env.reset()
+    env.render()
     done = False
     while not done:
         action = pp(obs)

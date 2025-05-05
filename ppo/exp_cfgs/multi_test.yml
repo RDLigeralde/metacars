@@ -14,7 +14,7 @@ world:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
   normalize_input: True
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
 
 reward_params:
   vel_action_change_penalty: 0  # -0.5

@@ -1,6 +1,6 @@
 from f1tenth_gym.envs.track.utils import find_track_dir
 from f1tenth_gym.envs.rendering import make_renderer
-from opponents.opponent import OpponentDriver
+from meta.opponents.opponent import OpponentDriver
 from f1tenth_gym.envs import F110Env
 
 from scipy.interpolate import CubicSpline

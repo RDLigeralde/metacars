@@ -1,11 +1,13 @@
 from stable_baselines3.common.monitor import Monitor
-from rl_env import F110LegacyViewer, OpponentDriver
+from rl_env import F110LegacyViewer
 import gymnasium as gym
 import numpy as np
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
-import torch
+
+from rl_env import F110LegacyViewer, OpponentDriver
+from meta.opponents.pure_pursuit import PurePursuit
 
 from utils import get_cfg_dicts
 import argparse
@@ -40,7 +42,16 @@ def evaluate(
     
     env = gym.make('f1tenth-v0-legacy', config=env_args, render_mode=render_mode)
     if env_args['num_agents'] == 2:
-        opponents = [OpponentDriver()]
+        conf = {
+            'wheelbase': 0.5,
+            'lookahead': 0.4,
+            'max_reacquire': 1.0,
+            'waypoints': 'lup',
+            'synthbrake': 0.35,
+        }
+        conf['s_max'] = env_args['params']['s_max']
+        conf['v_max'] = env_args['params']['v_max']
+        opponents = [PurePursuit(conf)]
     else:
         opponents = None
     env = F110LegacyViewer(env, render_mode=render_mode, opponents=opponents)
