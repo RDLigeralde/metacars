@@ -1,6 +1,7 @@
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
+from rl_env import F110LegacyViewer
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
@@ -60,7 +61,7 @@ def train(
             config=env_args, 
             render_mode=render_mode
         )
-        
+        base = F110LegacyViewer(base, render_mode=render_mode)
         return Monitor(base)
     
     recurrent = ppo_args.pop('recurrent')

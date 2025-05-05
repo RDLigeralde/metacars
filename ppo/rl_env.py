@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 
 
-from typing import List
+from typing import List, Optional, Dict, Any
 import os
 import cv2
 import time
@@ -17,7 +17,7 @@ class OpponentDriver:
         """Wrapper class for opponent policies"""
         pass
 
-    def drive(self, obs):
+    def __call__(self, obs):
         """Drive the car: implemented in subclasses"""
         return np.zeros(2)
 
@@ -682,3 +682,68 @@ class F110EnvLegacy(F110Env):
         """Update the crash penalty value based on curriculum"""
         self.crash_penalty = -(1 + (self.MAX_CRASH_PENALTY - 1) * 
                             np.tanh(self.total_timesteps / self.CRASH_CURRICULUM))
+
+class F110LegacyViewer(gym.Wrapper):
+    def __init__(
+        self,
+        env: F110EnvLegacy,
+        render_mode: str = None,
+        opponents: Optional[List[OpponentDriver]] = None,
+        **kwargs
+    ):
+        super().__init__(env)
+        self.env = env
+        self.opponents = opponents
+        self.opponent = np.random.choice(opponents) if opponents is not None else None
+        self.ego_idx = env.unwrapped.sim.ego_idx
+        self.opponent_idx = 1 - self.ego_idx
+
+        self.action_space = gym.spaces.Box(
+            low=-1.0,
+            high=1.0,
+            shape=(1,2),
+            dtype=np.float32,
+        )
+
+        # hardcoded to frenet_marl
+        large_num = 1e30
+        scan_size = self.env.unwrapped.sim.agents[0].scan_simulator.num_beams
+        scan_range = self.env.unwrapped.sim.agents[0].scan_simulator.max_range + 0.5
+
+        self.observation_space = gym.spaces.Dict({
+            'scan': gym.spaces.Box(low=0, high=scan_range, shape=(1, scan_size), dtype=np.float32),
+            'pose': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
+            'vel': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 3), dtype=np.float32),
+            'heading': gym.spaces.Box(low=-large_num, high=large_num, shape=(1, 2), dtype=np.float32),
+        })
+
+    def reset(self, seed=None, options=None):
+        if options is not None and "opponent" in options:
+            self.opponent = options["opponent"]
+        elif self.opponents is not None:
+            self.opponent = np.random.choice(self.opponents)
+
+        obs, info = self.env.reset(seed=seed, options=options)
+        return self._ego_observe(obs, self.ego_idx), info
+
+    def step(self, action):
+        obs = self.env.unwrapped.observation_type.observe()
+        opp_obs = self._ego_observe(obs, self.opponent_idx)
+        opponent_action = self.opponent(opp_obs) if self.opponent else None
+
+        if opponent_action is not None:
+            action = np.concatenate((action, opponent_action), axis=0)
+        obs, reward, done, truncated, info = self.env.step(action)
+        obs = self._ego_observe(obs, self.ego_idx)
+        return obs, reward, done, truncated, info
+
+    def _ego_observe(self, obs, i):
+        """Get the ego observation"""
+        ego_obs = {
+            'scan': obs['scan'][i:i+1],
+            'pose': obs['pose'][i:i+1],
+            'vel': obs['vel'][i:i+1],
+            'heading': obs['heading'][i:i+1],
+        }
+        return ego_obs
+
