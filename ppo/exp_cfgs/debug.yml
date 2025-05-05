@@ -1,7 +1,7 @@
 world:
   seed: 42
   map: lup # either single map or dir to be sampled from in domain randomization
-  num_agents: 1
+  num_agents: 2
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
@@ -48,8 +48,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -4.0
-  v_max: 4.0
+  v_min: -6.0
+  v_max: 6.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189

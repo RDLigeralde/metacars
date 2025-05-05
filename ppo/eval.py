@@ -1,4 +1,5 @@
-from rl_env import F110EnvLegacy
+from stable_baselines3.common.monitor import Monitor
+from rl_env import F110LegacyViewer, OpponentDriver
 import gymnasium as gym
 import numpy as np
 
@@ -23,6 +24,11 @@ def evaluate(
     verbose: bool = True,
     MAX_EPISODE_LENGTH: int = 2000#1000 # 10 real seconds
 ):
+    gym.register(
+        id="f1tenth-v0-legacy",
+        entry_point="rl_env:F110EnvLegacy",
+    )
+
     """Logs per-episode metrics over n_episodes."""
     env_args, ppo_args, _, _ = get_cfg_dicts(config_path)
     if make_video:
@@ -32,7 +38,14 @@ def evaluate(
     else:
         render_mode = "none"
     
-    env = gym.make('ppo.rl_env:f1tenth-v0-legacy', config=env_args, render_mode=render_mode)
+    env = gym.make('f1tenth-v0-legacy', config=env_args, render_mode=render_mode)
+    if env_args['num_agents'] == 2:
+        opponents = [OpponentDriver()]
+    else:
+        opponents = None
+    env = F110LegacyViewer(env, render_mode=render_mode, opponents=opponents)
+    env = Monitor(env)
+
     # env = F110EnvLegacy(config=env_args, render_mode=render_mode)
     # env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
     if render_mode == "rgb_array":

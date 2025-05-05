@@ -1,16 +1,14 @@
 from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory, find_track_dir
 from scipy.interpolate import CubicSpline
-# from f1tenth_gym.envsutils import find_track_dir
+
 from f1tenth_gym.envs.rendering import make_renderer
 from f1tenth_gym.envs import F110Env
 import gymnasium as gym
 import numpy as np
 
-
-from typing import List, Optional, Dict, Any
-import os
+from typing import List, Optional
 import cv2
-import time
+import os
 
 class OpponentDriver:
     def __init__(self, **kwargs):
@@ -19,7 +17,7 @@ class OpponentDriver:
 
     def __call__(self, obs):
         """Drive the car: implemented in subclasses"""
-        return np.zeros(2)
+        return np.array([[0.0, 0.5]], dtype=np.float32)
 
 class F110EnvLegacy(F110Env):
     def __init__(

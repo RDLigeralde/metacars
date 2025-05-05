@@ -1,12 +1,14 @@
 from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from rl_env import F110LegacyViewer
 
 from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
 import gymnasium as gym
 import wandb
+
+from rl_env import F110LegacyViewer, OpponentDriver
+from meta.opponents.pure_pursuit import PurePursuit
 
 from utils import get_cfg_dicts, CustomWandbCallback
 import argparse
@@ -20,13 +22,6 @@ def train(
     yml_name: str,
     run_name: str,
 ):
-    # Register the custom environment first
-    # not sure why __init__.py is not being called
-    gym.register(
-        id="f1tenth-v0-legacy",
-        entry_point="rl_env:F110EnvLegacy",
-    )
-    
     model_save_freq = train_args.pop('save_interval')
     if log_args['project_name']:
         run = wandb.init(
@@ -61,7 +56,20 @@ def train(
             config=env_args, 
             render_mode=render_mode
         )
-        base = F110LegacyViewer(base, render_mode=render_mode)
+        if env_args['num_agents'] == 2:
+            conf = {
+                'wheelbase': 0.5,
+                'lookahead': 0.4,
+                'max_reacquire': 1.0,
+                'waypoints': 'lup',
+                'synthbrake': 0.35,
+            }
+            conf['s_max'] = env_args['params']['s_max']
+            conf['v_max'] = env_args['params']['v_max']
+            opponents = [PurePursuit(conf)]
+        else:
+            opponents = None
+        base = F110LegacyViewer(base, render_mode=render_mode, opponents=opponents)
         return Monitor(base)
     
     recurrent = ppo_args.pop('recurrent')

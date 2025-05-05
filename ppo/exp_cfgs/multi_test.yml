@@ -34,7 +34,7 @@ reward_params:
   initial_crash_penalty: -1.0
   milestone_increment: 0.1
   initial_milestone: 0.1
-  overtake_reward: 10.0
+  overtake_reward: 20.0
 
 car:
   # dr_param_ex:
@@ -77,13 +77,13 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 2_500_000
+  total_timesteps: 2_000_000
   save_interval: 500_000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
 
 log:
-  log_tensorboard: False
-  project_name: null # set null to disable wandb
-  run_name: null
+  log_tensorboard: True
+  project_name: lup_clean_multi # set null to disable wandb
+  run_name: straightline_opp
