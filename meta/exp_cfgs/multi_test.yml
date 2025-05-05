@@ -1,7 +1,7 @@
 world:
   seed: 42
   map: lup # either single map or dir to be sampled from in domain randomization
-  num_agents: 1
+  num_agents: 2
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
@@ -34,7 +34,7 @@ reward_params:
   initial_crash_penalty: -1.0
   milestone_increment: 0.1
   initial_milestone: 0.1
-  overtake_reward: 10.0
+  overtake_reward: 20.0
 
 car:
   # dr_param_ex:
@@ -48,14 +48,18 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -4.0
-  v_max: 4.0
+  v_min: -6.0
+  v_max: 6.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189
   v_switch: 7.319
   sv_min: -3.2
   sv_max: 3.2
+
+opp_params:
+  entropy_min: 0.0
+  entropy_max: 0.25
 
 ppo_params:
   init_path: null # if resuming a run
@@ -84,6 +88,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
-  project_name: null # set null to disable wandb
-  run_name: null
+  log_tensorboard: True
+  project_name: lup_clean_multi # set null to disable wandb
+  run_name: straightline_opp

@@ -21,6 +21,8 @@ def train(
     ppo_args: dict,
     train_args: dict,
     log_args: dict,
+    opp_args: dict,
+    opp_dir: str,
     yml_name: str,
     run_name: str,
 ):
@@ -50,21 +52,19 @@ def train(
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard', False) else None
     render_mode = env_args.pop('render_mode', None)
 
-    # Extract normalization flags
     norm_obs = env_args.pop('normalize_observations', False)
     norm_rew = env_args.pop('normalize_rewards', False)
     
-    opponents = [OpponentDriver()] if env_args['num_agents'] > 1 else None # TODO: replace with actual opponents
     def make_env():
         base = gym.make(
             id='meta.meta_env:F110Multi-v0',
-            #id='ppo.rl_env:f1tenth-v0-dr',
             config=env_args,
             render_mode=render_mode,
         )
         viewer = F110MultiView(
             env=base, 
-            opponents=opponents,
+            opp_dir=opp_dir,
+            opp_cfg=opp_args,
         )
         return Monitor(viewer)
     
@@ -159,13 +159,12 @@ def train(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--config', type=str, help='Path to the config file'
-    )
+    parser.add_argument('--config', type=str, help='Path to the config file')
     parser.add_argument('--run_name', type=str, help='Name for distinguishing runs')
+    parser.add_argument('--opp_dir', type=str, help='Path to opponent directory', default=None)
     args = parser.parse_args()
 
-    env_args, ppo_args, train_args, log_args = cfg_from_yaml(args.config)
+    env_args, ppo_args, train_args, log_args, opp_args = cfg_from_yaml(args.config)
     yml_name = os.path.basename(args.config)
     
     train(
@@ -173,6 +172,8 @@ def main():
         ppo_args=ppo_args,
         train_args=train_args,
         log_args=log_args,
+        opp_args=opp_args,
+        opp_dir=args.opp_dir,
         yml_name=os.path.splitext(yml_name)[0],
         run_name=args.run_name
     )

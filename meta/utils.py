@@ -8,10 +8,20 @@ def cfg_from_yaml(yml_path):
     try:
         with open(yml_path, 'r') as f:
             cfg = yaml.safe_load(f)
-            world, reward, car, ppo_params, train_params, log = (cfg[key] for key in ['world', 'rewards', 'car', 'ppo_params', 'train_params', 'log'])
+            world, reward, opps, car, ppo_params, train_params, log = (
+                cfg[key] for key in [
+                    'world', 
+                    'reward_params',
+                    'opp_params',
+                    'car', 
+                    'ppo_params', 
+                    'train_params', 
+                    'log'
+                ]
+            )
             world['params'] = car
-            world['reward'] = reward
-            return world, ppo_params, train_params, log
+            world['reward_params'] = reward
+            return world, ppo_params, train_params, log, opps
     except Exception as e:
         print(f"Error reading YAML file: {e}")
         return None
