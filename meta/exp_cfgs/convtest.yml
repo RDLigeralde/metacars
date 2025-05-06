@@ -1,6 +1,6 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from in domain randomization
+  map: race3 # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 8 # set -1 to use number of cpu cores
@@ -9,11 +9,15 @@ world:
   num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config:
-    type: frenet_rl # need the nested dict for the observation config
+    type: frenet_marl # need the nested dict for the observation config
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
+  normalize_input: True
+  normalize_observations: False
+  normalize_rewards: False
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
+
 car:
   # dr_param_ex:
   #   min: x
@@ -35,33 +39,29 @@ car:
   sv_min: -3.2
   sv_max: 3.2
 
-rewards:
-  normalize_observations: False
-  normalize_rewards: False
+opp_params:
+  entropy_min: 0.0
+  entropy_max: 0.25
 
-  velocity_reward_scale: 0.0
-  turn_speed_penalty: 0
-  vel_action_change_penalty: 0
-  steer_action_change_penalty: -0.05
-
+reward_params:
+  vel_action_change_penalty: 0  # -0.5
+  steer_action_change_penalty: -0.05  # -1.0
   stagnation_penalty: -0.1
-  stagnation_cutoff: 0.02
-
+  stagnation_cutoff: 0.02  # delta s as a fraction of total track length
+  velocity_reward_scale: 0.0
   heading_penalty: -1.0
   progress_weight: 100
-
-  crash_curriculum: 100000
-  decay_interval: 100000
-  delta_u_curriculum: 1000000
-  v_ref_curriculum: 1000000
-
-  max_crash_penalty: 1
-  
+  crash_curriculum: 100000  # int(1e5)
+  delta_u_curriculum: 1000000  # int(1e6)
+  v_ref_curriculum: 1000000  # int(1e6)
   milestone_reward: 5
-  milestone: 0.1
+  decay_interval: 100000  # 1e5
+  max_crash_penalty: 1
+  turn_speed_penalty: 0  # -0.1
+  initial_crash_penalty: -1.0
   milestone_increment: 0.1
-
-  overtaking_reward: 0.0
+  initial_milestone: 0.1
+  overtake_reward: 20.0
 
 ppo_params:
   init_path: null # if resuming a run
@@ -81,8 +81,9 @@ ppo_params:
   max_grad_norm: 0.5
   use_sde: False
   sde_sample_freq: -1
+
 train_params:
-  total_timesteps: 2_500_000
+  total_timesteps: 2_000_000
   save_interval: 500_000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
@@ -90,5 +91,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: convtest # set null to disable wandb
-  run_name: iwannakms
+  project_name: convtest_race3 # set null to disable wandb
+  run_name: normalize

@@ -520,6 +520,7 @@ class F110MultiView(gym.Wrapper):
             self.opponent, self.opp_vmax = self.loader.sample()
         else:
             self.loader = None
+            self.opponent = None
 
         self.action_space = gym.spaces.Box(
             low=-1.0,
@@ -552,6 +553,9 @@ class F110MultiView(gym.Wrapper):
         obs = self.env.unwrapped.observation_type.observe()
         opp_obs = self._ego_observe(obs, self.opponent_idx)
         opponent_action = self.opponent(opp_obs) if self.opponent else None
+
+        if action.shape[0] == 2: # hack for recurrent policy
+            action = np.expand_dims(action, axis=0)
 
         if opponent_action is not None:
             # ensures same normalization step correctly scales both agent speeds

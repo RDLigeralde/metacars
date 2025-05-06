@@ -80,7 +80,7 @@ def train(
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
-    #norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
+    norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
     norm_obs, norm_rew = False, False
     if num_envs == 1:
         env = make_env()
@@ -104,7 +104,7 @@ def train(
         env = VecNormalize(
             env,
             norm_obs=norm_obs,
-            norm_rew=norm_rew,
+            norm_reward=norm_rew,
             clip_obs=10.0, # TODO: make this a config option
             gamma=env_args['gamma'],
         )

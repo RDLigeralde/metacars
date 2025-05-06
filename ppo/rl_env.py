@@ -239,7 +239,6 @@ class F110EnvLegacy(F110Env):
             self.last_s = [0.0] * self.num_agents
         
         prog = current_s - self.last_s[self.ego_idx]
-        
 
         if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[self.ego_idx] > 0.9 * self.track.centerline.spline.s[-1]:
             prog += self.track.centerline.spline.s[-1]

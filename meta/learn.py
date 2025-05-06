@@ -113,7 +113,7 @@ def train(
         env = VecNormalize(
             env,
             norm_obs=norm_obs,
-            norm_rew=norm_rew,
+            norm_reward=norm_rew,
             clip_obs=10.0,  # TODO: make this a config option
             gamma=env_args.get('gamma', 0.99),
         )

@@ -14,7 +14,9 @@ world:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
   normalize_input: True
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
+  normalize_observations: True
+  normalize_rewards: True
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
 
 reward_params:
   vel_action_change_penalty: 0  # -0.5
@@ -29,7 +31,7 @@ reward_params:
   v_ref_curriculum: 1000000  # int(1e6)
   milestone_reward: 5
   decay_interval: 100000  # 1e5
-  max_crash_penalty: 1
+  max_crash_penalty: 15
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
   milestone_increment: 0.1
@@ -63,7 +65,7 @@ opp_params:
 
 ppo_params:
   init_path: null # if resuming a run
-  recurrent: False
+  recurrent: True
   device: cpu # actually faster on cpu, for some reason
   learning_rate: 0.0001
   n_steps: 2048
@@ -81,7 +83,7 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 2_000_000
+  total_timesteps: 1_000_000
   save_interval: 500_000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
@@ -90,4 +92,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: lup_clean_multi # set null to disable wandb
-  run_name: straightline_opp
+  run_name: recurrent
