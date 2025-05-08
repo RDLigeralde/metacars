@@ -24,7 +24,7 @@ def evaluate(
     deterministic: bool = True,
     verbose: bool = True,
     norm_path: Optional[str] = None,
-    MAX_EPISODE_LENGTH: int = 2000  # 10 real seconds
+    MAX_EPISODE_LENGTH: int = 1000  # 10 real seconds
 ):
     """Logs per-episode metrics over n_episodes."""
     env_args, ppo_args, _, log_args, opp_args = cfg_from_yaml(config_path)
@@ -99,7 +99,7 @@ def evaluate(
         
         start_time = time.time()
         
-        while not done:
+        while not done and episode_steps < MAX_EPISODE_LENGTH:
             if recurrent:
                 action, lstm_states = model.predict(
                     obs, 
@@ -111,10 +111,12 @@ def evaluate(
             
             if use_vecnorm:
                 obs, reward, terminated, info = env.step(action)
+                truncated = False
             else:
                 obs, reward, terminated, truncated, info = env.step(action)
-            done = terminated
+            done = terminated or truncated
             env.render()
+            
             
     env.close()
 

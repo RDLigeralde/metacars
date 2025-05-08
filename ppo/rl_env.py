@@ -516,7 +516,8 @@ class F110EnvLegacy(F110Env):
 
         # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
         self.update_map(config['map'])
-        self._spawn_obstacle(self.num_obstacles)
+        n_obs = np.random.randint(0, self.num_obstacles + 1)
+        self._spawn_obstacle(n_obs)
         self._update_map_from_track()
         # get no input observations
         self.last_action = np.zeros((self.num_agents, 2))
@@ -537,8 +538,8 @@ class F110EnvLegacy(F110Env):
         n_obs,
         obs_room = 30,
         room=30, 
-        r_min=0.15,
-        r_max=0.3,
+        r_min=0.1,
+        r_max=0.2,
         margin=0.6,
     ):
         """

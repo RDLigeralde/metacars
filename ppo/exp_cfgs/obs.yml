@@ -5,7 +5,7 @@ world:
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
-  num_obstacles: 8 # spawns obstacles in range [0, num_obstacles]
+  num_obstacles: 10 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config:
@@ -14,16 +14,16 @@ world:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
   normalize_input: True
-  normalize_observations: True
-  normalize_rewards: True
-  render_mode: human # set null to disable rendering: only for single env eval / debugging
+  normalize_observations: False
+  normalize_rewards: False
+  render_mode: null # set null to disable rendering: only for single env eval / debugging
 
 reward_params:
   vel_action_change_penalty: 0  # -0.5
   steer_action_change_penalty: -0.05  # -1.0
   stagnation_penalty: -0.1
   stagnation_cutoff: 0.02  # delta s as a fraction of total track length
-  velocity_reward_scale: 0.0
+  velocity_reward_scale: 10.0
   heading_penalty: -1.0
   progress_weight: 100
   crash_curriculum: 100000  # int(1e5)
@@ -31,12 +31,12 @@ reward_params:
   v_ref_curriculum: 1000000  # int(1e6)
   milestone_reward: 5
   decay_interval: 100000  # 1e5
-  max_crash_penalty: 1
+  max_crash_penalty: 5
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
   milestone_increment: 0.1
   initial_milestone: 0.1
-  overtake_reward: 10.0
+  overtake_reward: 0.0
 
 car:
   # dr_param_ex:
@@ -50,8 +50,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -6.0
-  v_max: 6.0
+  v_min: -4.0
+  v_max: 4.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189

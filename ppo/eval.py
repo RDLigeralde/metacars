@@ -22,7 +22,7 @@ def evaluate(
     make_video: bool = False,
     deterministic: bool = True,
     verbose: bool = True,
-    MAX_EPISODE_LENGTH: int = 2000#1000 # 10 real seconds
+    MAX_EPISODE_LENGTH: int = 1000#1000 # 10 real seconds
 ):
     gym.register(
         id="f1tenth-v0-legacy",
@@ -83,7 +83,7 @@ def evaluate(
         
         start_time = time.time()
         
-        while not done: #and episode_steps <= MAX_EPISODE_LENGTH:
+        while not done and episode_steps <= MAX_EPISODE_LENGTH:
             if recurrent:
                 action, lstm_states = model.predict(
                     obs, 
