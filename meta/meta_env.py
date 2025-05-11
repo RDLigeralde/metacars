@@ -16,7 +16,7 @@ class F110Multi(F110Env):
     def __init__(
         self,
         config: dict,
-        render_mode: str = None,
+        render_mode: str = None, 
         **kwargs         
     ):
         """
@@ -565,7 +565,7 @@ class F110MultiView(gym.Wrapper):
         obs, reward, done, truncated, info = self.env.step(action)
         obs = self._ego_observe(obs, self.ego_idx)
         return obs, reward, done, truncated, info
-
+    
     def _ego_observe(self, obs, i) -> dict:
         """
         currently hardcoded to frenet_marl
