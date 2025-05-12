@@ -172,7 +172,6 @@ cython_debug/
 *.pkl
 
 # weights and other training files
-**/maps/*/
 **/runs/*
 **/wandb/*
 **/models/*

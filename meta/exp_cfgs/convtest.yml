@@ -1,7 +1,7 @@
 world:
   seed: 42
-  map: levine # either single map or dir to be sampled from in domain randomization
-  num_agents: 1
+  map: Austin # either single map or dir to be sampled from in domain randomization
+  num_agents: -1
   num_envs:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
