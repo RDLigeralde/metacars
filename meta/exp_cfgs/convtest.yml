@@ -1,6 +1,6 @@
 world:
   seed: 42
-  map: IMS # either single map or dir to be sampled from in domain randomization
+  map: Austin # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 1 # set -1 to use number of cpu cores
@@ -30,8 +30,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -2.0
-  v_max: 2.0
+  v_min: -8.0
+  v_max: 8.0
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189

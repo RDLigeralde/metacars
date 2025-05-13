@@ -89,6 +89,6 @@ class GigaBuffer(DictReplayBuffer):
         historical_rewards=torch.tensor(self.historical_rewards[indices]).to(self.device),
         historical_obs={key: torch.tensor(self.historical_obs[key][indices]).to(self.device)
                         for key in self.historical_obs},
-    )
+        )
 
         return batch

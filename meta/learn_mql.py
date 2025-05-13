@@ -17,7 +17,7 @@ import argparse
 import os
 
 class CriticNetwork(nn.Module):
-    def __init__(self, observation_space: gym.spaces.Dict, action_dim: int, features_dim: int = 256):
+    def __init__(self, observation_space: gym.spaces.Dict, action_dim: int, features_dim: int = 256, context_dim: int = 128):
         """
         Critic network that predicts Q-values using a fully connected architecture
         for the 'heading', 'pose', 'scan', and 'vel' observations.
@@ -60,7 +60,8 @@ class CriticNetwork(nn.Module):
         )
 
         # Combine all embeddings with actions
-        total_embed_dim = 64 + 64 + 128 + 64 + action_dim
+        total_embed_dim = 64 + 64 + 128 + 64 + action_dim + context_dim
+        self.context_dim = context_dim
         self.q1_layer = nn.Sequential(
             nn.Linear(total_embed_dim, features_dim),
             nn.ReLU(),
@@ -84,10 +85,11 @@ class CriticNetwork(nn.Module):
         return cat_embed
 
 
-    def forward(self, observations: dict, actions: torch.Tensor, pre_act_rew) -> torch.Tensor:
+    def forward(self, observations: dict, actions: torch.Tensor, context_feats: torch.Tensor) -> torch.Tensor:
         cat_embed = self.big_squeeze(observations, actions)
-        x1 = self.q1_layer(cat_embed)
-        x2 = self.q2_layer(cat_embed)
+        joint = torch.cat((cat_embed, context_feats), dim=1)
+        x1 = self.q1_layer(joint)
+        x2 = self.q2_layer(joint)
         return x1,x2
     
     def Q1(self, x, u, pre_act_rew = None):
@@ -103,7 +105,7 @@ class CriticNetwork(nn.Module):
 
 
 class ActorNetwork(nn.Module):
-    def __init__(self, observation_space: gym.spaces.Dict, action_dim: int, features_dim: int = 256):
+    def __init__(self, observation_space: gym.spaces.Dict, action_dim: int, features_dim: int = 256, context_dim: int = 128):
         """
         Actor network that predicts actions using a fully connected architecture
         for the 'heading', 'pose', 'scan', and 'vel' observations.
@@ -146,7 +148,9 @@ class ActorNetwork(nn.Module):
         )
 
         # Combine all embeddings
-        total_embed_dim = 64 + 64 + 128 + 64
+        total_embed_dim = 64 + 64 + 128 + 64 + context_dim
+        self.context_dim = context_dim
+
         self.action_layer = nn.Sequential(
             nn.Linear(total_embed_dim, features_dim),
             nn.ReLU(),
@@ -154,16 +158,15 @@ class ActorNetwork(nn.Module):
             nn.Tanh(),  # Assuming actions are normalized between -1 and 1
         )
 
-    def forward(self, observations: dict, pre_act_rew) -> torch.Tensor:
+    def forward(self, observations: dict, context_feats: torch.Tensor) -> torch.Tensor:
         # Process each observation type
         heading_embed = self.heading_mlp(observations['heading'].squeeze(1))
         pose_embed = self.pose_mlp(observations['pose'].squeeze(1))
         scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
         vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
-        # Concatenate all embeddings
-        cat_embed = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed), dim=1)
-        return self.action_layer(cat_embed)
+        joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats), dim=1)
+        return self.action_layer(joint)
 
 
 def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, opp_args: dict, opp_dir: str):

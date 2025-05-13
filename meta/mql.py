@@ -88,6 +88,9 @@ class MQL:
             self.actor_optimizer = optim.Adam(self.actor.parameters())
             self.critic_optimizer = optim.Adam(self.critic.parameters())
 
+        # TODO: get correct input size @kevin
+        self.context_encoder = nn.GRU(input_size=128, hidden_size=128, num_layers=2, batch_first=True)  
+
         print('-----------------------------')
         print('Optim Params')
         print("Actor:\n ",  self.actor_optimizer)
@@ -99,6 +102,26 @@ class MQL:
         print("enable_beta_obs_cxt: ", enable_beta_obs_cxt)
         print('********')
         print('-----------------------------')
+
+    def get_context_feats(self, act_rew_obs):
+        """
+        Given a history of (actions, rewards, obs), encode with GRU and return
+        the final hidden vector (batch, context_dim).
+        """
+        hist_actions, hist_rewards, hist_obs = act_rew_obs
+        # hist_actions: (B, H, A), hist_rewards: (B, H), hist_obs: dict of (B, H, d_k)
+        # flatten obs sequence
+        obs_seq = torch.cat(
+            [hist_obs[k].reshape(hist_obs[k].size(0), hist_obs[k].size(1), -1)
+                for k in sorted(hist_obs.keys())],
+            dim=2
+        )  # (B, H, obs_dim)
+        # make reward vector (B, H, 1)
+        rew_seq = hist_rewards.unsqueeze(-1)
+        # concatenate into (B, H, A+1+obs_dim)
+        seq = torch.cat([hist_actions, rew_seq, obs_seq], dim=2)
+        _, h_n = self.context_encoder(seq)      # h_n: (1, B, context_dim)
+        return h_n.squeeze(0)                   # (B, context_dim)
 
     def copy_model_params(self):
         '''
@@ -189,15 +212,15 @@ class MQL:
         with torch.no_grad():   
 
             # batch_size X context_hidden 
-            # self.actor.get_conext_feats outputs, [batch_size , context_size]
+            # self.actor.get_context_feats outputs, [batch_size , context_size]
             # torch.cat ([batch_size , obs_dim], [batch_size , context_size]) ==> [batch_size, obs_dim + context_size ]
             if self.enable_beta_obs_cxt == True:
-                snap_ctxt = torch.cat([pos_pxx, self.actor.get_conext_feats(pos_act_rew_obs)], dim = -1).cpu().data.numpy()
-                neg_ctxt = torch.cat([neg_xx, self.actor.get_conext_feats(neg_act_rew_obs)], dim = -1).cpu().data.numpy()
+                snap_ctxt = torch.cat([pos_pxx, self.get_context_feats(pos_act_rew_obs)], dim = -1).cpu().data.numpy()
+                neg_ctxt = torch.cat([neg_xx, self.get_context_feats(neg_act_rew_obs)], dim = -1).cpu().data.numpy()
 
             else:
-                snap_ctxt = self.actor.get_conext_feats(pos_act_rew_obs).cpu().data.numpy()
-                neg_ctxt = self.actor.get_conext_feats(neg_act_rew_obs).cpu().data.numpy()
+                snap_ctxt = self.get_context_feats(pos_act_rew_obs).cpu().data.numpy()
+                neg_ctxt = self.get_context_feats(neg_act_rew_obs).cpu().data.numpy()
 
 
         ######
@@ -257,10 +280,10 @@ class MQL:
 
             # batch_size X context_hidden 
             if self.enable_beta_obs_cxt == True:
-                ctxt = torch.cat([curr_obs, self.actor.get_conext_feats(curr_pre_act_rew)], dim = -1).cpu().data.numpy()
+                ctxt = torch.cat([curr_obs, self.get_context_feats(curr_pre_act_rew)], dim = -1).cpu().data.numpy()
 
             else:
-                ctxt = self.actor.get_conext_feats(curr_pre_act_rew).cpu().data.numpy()
+                ctxt = self.get_context_feats(curr_pre_act_rew).cpu().data.numpy()
 
         # step 0: get f(x)
         f_prop = np.dot(ctxt, cs_model.coef_.T) + cs_model.intercept_
@@ -341,6 +364,7 @@ class MQL:
             # combine reward and action
             act_rew = [hist_actions, hist_rewards, hist_obs] # torch.cat([action, reward], dim = -1)
             pre_act_rew = [previous_action, previous_reward, previous_obs] #torch.cat([previous_action, previous_reward], dim = -1)
+            ctxt_feats = self.get_context_feats(pre_act_rew)
 
             if csc_model is None:
                 # propensity_scores dim is batch_size 
@@ -361,7 +385,7 @@ class MQL:
             # e ~ clip(N(0, \sigma), -c, c)
             ########
             noise = (torch.randn_like(action) * self.policy_noise ).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (self.actor_target(next_obs, act_rew) + noise).clamp(-self.max_action, self.max_action)
+            next_action = (self.actor_target(next_obs, ctxt_feats) + noise).clamp(-self.max_action, self.max_action)
 
             ########
             #  Update critics
@@ -373,12 +397,12 @@ class MQL:
 
             # 1. y = r + \gamma * min{Q1, Q2} (s_next, next_action)
             # if done , then only use reward otherwise reward + (self.gamma * target_Q)
-            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, act_rew)
+            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, ctxt_feats)
             target_Q = torch.min(target_Q1, target_Q2)
             target_Q = reward + (mask * self.gamma * target_Q).detach()
 
             # 2.  Get current Q estimates
-            current_Q1, current_Q2 = self.critic(obs, action, pre_act_rew)
+            current_Q1, current_Q2 = self.critic(obs, action, ctxt_feats)
 
 
             # 3. Compute critic loss
@@ -406,7 +430,7 @@ class MQL:
             if it % self.policy_freq == 0:
 
                 # Compute actor loss
-                actor_loss_temp = -1 * beta_score * self.critic.Q1(obs, self.actor(obs, pre_act_rew), pre_act_rew)
+                actor_loss_temp = -1 * beta_score * self.critic.Q1(obs, self.actor(obs, ctxt_feats), ctxt_feats)
                 actor_loss = actor_loss_temp.mean()
                 actor_loss_out += actor_loss.item()
 
@@ -518,6 +542,7 @@ class MQL:
             # combine reward and action
             act_rew = [hist_actions, hist_rewards, hist_obs] # torch.cat([action, reward], dim = -1)
             pre_act_rew = [previous_action, previous_reward, previous_obs] #torch.cat([previous_action, previous_reward], dim = -1)
+            ctxt_feats = self.get_context_feats(pre_act_rew)
 
             ########
             # Select action according to policy and add clipped noise
@@ -527,7 +552,7 @@ class MQL:
             # e ~ clip(N(0, \sigma), -c, c)
             ########
             noise = (torch.randn_like(action) * self.policy_noise ).clamp(-self.noise_clip, self.noise_clip)
-            next_action = (self.actor_target(next_obs, act_rew) + noise).clamp(-self.max_action, self.max_action)
+            next_action = (self.actor_target(next_obs, ctxt_feats) + noise).clamp(-self.max_action, self.max_action)
 
             ########
             #  Update critics
@@ -539,12 +564,12 @@ class MQL:
 
             # 1. y = r + \gamma * min{Q1, Q2} (s_next, next_action)
             # if done , then only use reward otherwise reward + (self.gamma * target_Q)
-            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, act_rew)
+            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, ctxt_feats)
             target_Q = torch.min(target_Q1, target_Q2)
             target_Q = reward + (mask * self.gamma * target_Q).detach()
 
             # 2.  Get current Q estimates
-            current_Q1, current_Q2 = self.critic(obs, action, pre_act_rew)
+            current_Q1, current_Q2 = self.critic(obs, action, ctxt_feats)
 
             # 3. Compute critic loss
             # even we picked min Q, we still need to backprob to both Qs
@@ -562,7 +587,7 @@ class MQL:
             if it % self.policy_freq == 0:
 
                 # Compute actor loss
-                actor_loss = -self.critic.Q1(obs, self.actor(obs, pre_act_rew), pre_act_rew).mean()
+                actor_loss = -self.critic.Q1(obs, self.actor(obs, ctxt_feats), ctxt_feats).mean()
                 actor_loss_out += actor_loss.item()
 
                 # Optimize the actor
