@@ -91,5 +91,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: convtest_race3 # set null to disable wandb
-  run_name: normalize
+  project_name: speed_2_0_ims # set null to disable wandb
+  run_name: null

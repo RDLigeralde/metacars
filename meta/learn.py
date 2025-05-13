@@ -8,7 +8,7 @@ import gymnasium as gym
 from stable_baselines3.common.monitor import Monitor
 import wandb
 
-from meta.opponents.opponent import OpponentDriver
+from opponents.opponent import OpponentDriver
 from network import LIDARConvExtractor
 from meta_env import F110MultiView
 

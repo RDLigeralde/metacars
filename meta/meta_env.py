@@ -2,7 +2,7 @@ from f1tenth_gym.envs.track.utils import find_track_dir
 from f1tenth_gym.envs.rendering import make_renderer
 from f1tenth_gym.envs import F110Env
 
-from opponents.opponent import OpponentDriver
+# from opponents.oppxpyonent import OpponentDriver
 from opponents.loader import PolicyLoader
 
 from scipy.interpolate import CubicSpline
@@ -28,6 +28,10 @@ class F110Multi(F110Env):
         self.config_input = config
         self.params_input = config['params']
 
+        # for x in config.keys():
+        #     print(x, config.get(x))
+        self.VELOCITY_MAX = config.get('params').get('v_max')
+
         self.reward_params = config.get('reward_params', {})
         self._init_reward_params()
 
@@ -43,6 +47,8 @@ class F110Multi(F110Env):
             self.use_trackgen = False
             self.tracks = None
 
+        # print(tracks)
+
         config = self._sample_dict(self.config_input)
         config['params'] = self._sample_dict(self.params_input)
         self.render_mode = render_mode
@@ -57,6 +63,8 @@ class F110Multi(F110Env):
                 dtype=np.float32,
             )
         self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
+
+        print(f"CFG MAP:{config['map']}")
 
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
@@ -92,6 +100,8 @@ class F110Multi(F110Env):
         self.MAX_CRASH_PENALTY = self.reward_params.get('max_crash_penalty')
         self.TURN_SPEED_PENALTY = self.reward_params.get('turn_speed_penalty')
         self.OVERTAKE_REWARD = self.reward_params.get('overtake_reward')
+        self.VELOCITY_MATCH_PENALTY = self.reward_params.get("velocity_reward_scale")
+        
 
     def _get_yaw_spline(self, raceline_info) -> CubicSpline:
         data = np.zeros((raceline_info.shape[0], 2))
@@ -130,12 +140,17 @@ class F110Multi(F110Env):
 
     def _update_raceline(self, track) -> np.ndarray:
         track_dir = find_track_dir(track)
-        centerline_file = os.path.join(track_dir, f"{track}_raceline.csv")
+        track_name = str(track_dir).split(os.sep)[-1]
+        centerline_file = os.path.join(track_dir, f"{track_name}_raceline.csv")
         return np.loadtxt(centerline_file, delimiter=';').astype(np.float32)
     
     def _update_centerline(self, track):
         track_dir = find_track_dir(track)
-        centerline_file = os.path.join(track_dir, f"{track}_centerline.csv")
+        track_name = str(track_dir).split(os.sep)[-1]
+        # print(f"[TRACK:] {track}, [TRACK DIR:] {track_dir}")
+        # print(f"{track}_centerline.csv")
+        centerline_file = os.path.join(track_dir, f"{track_name}_centerline.csv")
+        # print(centerline_file)
         return np.loadtxt(centerline_file, delimiter=',').astype(np.float32)
 
     def _update_map_from_track(self):
@@ -230,7 +245,54 @@ class F110Multi(F110Env):
                         np.abs(self.last_action[self.ego_idx, 0] - action[self.ego_idx, 0]) * \
                         time_increase_factor
         return steer_delta_pen
+    
+    def get_agent_speed(self, agent_idx: int) -> float:
+        """
+        Estimate the speed of an agent based on pose difference over time.
+        """
+        if not hasattr(self, "_prev_poses_x"):
+            # First call: initialize previous positions
+            self._prev_poses_x = np.copy(self.poses_x)
+            self._prev_poses_y = np.copy(self.poses_y)
+            return 0.0  # No movement on first frame
 
+        dx = self.poses_x[agent_idx] - self._prev_poses_x[agent_idx]
+        dy = self.poses_y[agent_idx] - self._prev_poses_y[agent_idx]
+        speed = np.sqrt(dx**2 + dy**2) / self.timestep
+
+        self._prev_poses_x[agent_idx] = self.poses_x[agent_idx]
+        self._prev_poses_y[agent_idx] = self.poses_y[agent_idx]
+
+        return speed
+    
+    def _get_velocity_match_penalty(self) -> float:
+        # Calculate time increase factor
+        time_increase_factor = self._sigmoid(
+            ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
+        )
+        actual_velocity = self.get_agent_speed(self.ego_idx)
+        reference_velocity =self.VELOCITY_MAX
+
+        # # Debug logs
+        # print(f"[DEBUG] total_timesteps: {self.total_timesteps}")
+        # print(f"[DEBUG] DELTA_U_CURRICULUM: {self.DELTA_U_CURRICULUM}")
+        # print(f"[DEBUG] DECAY_INTERVAL: {self.DECAY_INTERVAL}")
+        # print(f"[DEBUG] time_increase_factor: {time_increase_factor}")
+        # print(f"[DEBUG] actual_velocity: {actual_velocity}")
+        # print(f"[DEBUG] reference_velocity: {reference_velocity}")
+
+        # Handle None reference_velocity
+        if reference_velocity is None:
+            raise ValueError("[ERROR] 'v_max' is not set in car_params.")
+
+        # Compute penalty
+        vel_match_penalty = self.VELOCITY_MATCH_PENALTY * \
+                            (actual_velocity - reference_velocity) ** 2 * \
+                            time_increase_factor
+
+        return -vel_match_penalty
+
+    
     def _get_velocity_change_penalty(self, action: np.ndarray) -> float:
         time_increase_factor = self._sigmoid(
             ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
@@ -239,6 +301,7 @@ class F110Multi(F110Env):
                         np.abs(self.last_action[self.ego_idx, 1] - action[self.ego_idx, 1]) * \
                         time_increase_factor
         return vel_delta_pen
+
 
     def _get_turn_speed_penalty(self, action: np.ndarray) -> float:
         time_increase_factor = self._sigmoid(
@@ -328,6 +391,7 @@ class F110Multi(F110Env):
         turn_speed_penalty = self._get_turn_speed_penalty(action)
         collision_penalty = self._get_collision_penalty()
         stagnation_penalty = self._get_stagnation_penalty(action)
+        vel_max_penalty = self._get_velocity_match_penalty()
         
         ego_reward = (
             prog_reward +
@@ -337,7 +401,8 @@ class F110Multi(F110Env):
             turn_speed_penalty +
             collision_penalty +
             stagnation_penalty +
-            overtake_reward
+            overtake_reward +
+            vel_max_penalty
         )
 
         total_reward = ego_reward

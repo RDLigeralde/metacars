@@ -30,8 +30,8 @@ car:
   m: 3.74
   I: 0.04712
   h: 0.074
-  v_min: -2.0
-  v_max: 2.0
+  v_min: -5.5
+  v_max: 5.5
   a_max: 6.34
   s_min: -0.4189
   s_max: 0.4189
@@ -91,5 +91,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: convtest_race3 # set null to disable wandb
-  run_name: normalize
+  project_name: speed_5_5_ims # set null to disable wandb
+  run_name: null

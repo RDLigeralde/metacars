@@ -1,4 +1,4 @@
-from meta.opponents.opponent import OpponentDriver
+# from meta.opponents.opponent import OpponentDriver
 from meta.meta_env import F110MultiView
 import gymnasium as gym
 import numpy as np
