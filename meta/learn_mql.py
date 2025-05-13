@@ -87,18 +87,20 @@ class CriticNetwork(nn.Module):
 
     def forward(self, observations: dict, actions: torch.Tensor, context_feats: torch.Tensor) -> torch.Tensor:
         cat_embed = self.big_squeeze(observations, actions)
-        joint = torch.cat((cat_embed, context_feats), dim=1)
+        joint = torch.cat((cat_embed, context_feats[-1]), dim=1)
         x1 = self.q1_layer(joint)
         x2 = self.q2_layer(joint)
         return x1,x2
     
-    def Q1(self, x, u, pre_act_rew = None):
+    def Q1(self, x, u, context_feats):
         '''
             input (x): B * D where B is batch size and D is input_dim
             input (u): B * A where B is batch size and A is action_dim
             pre_act_rew: B * (A + 1) where B is batch size and A + 1 is input_dim
         '''
+        
         xu = self.big_squeeze(x, u)
+        xu = torch.cat([xu,context_feats[-1]], dim = -1)
         x1 = self.q1_layer(xu)
         return x1
     
@@ -165,10 +167,7 @@ class ActorNetwork(nn.Module):
         scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
         vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
-        print(f"OBS: {observations}")
-        print(f"CONTEXT: {context_feats}")
-
-        joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats), dim=1)
+        joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1]), dim=1)
         return self.action_layer(joint)
 
 
@@ -273,7 +272,21 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             # Convert observations to tensors
             obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}
             # Choose action
-            action = actor(obs_tensor, None).detach().numpy()
+            # Step 1: Convert historical data to tensors
+            hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H, A)
+            hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H)
+
+            # Each obs[key] has shape (H, d), make a batched dict: {key: (1, H, d)}
+            hist_obs_tensor = {
+                k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                for k, v in historical_observations.items()
+            }
+
+            # Step 2: Get context features from the MQL context encoder
+            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor))  # (1, context_dim)
+
+            # Step 3: Pass context_feats to actor
+            action = actor(obs_tensor, context_feats).detach().cpu().numpy()
 
             # Step the environment
             next_obs, reward, done, info = env.step(action)

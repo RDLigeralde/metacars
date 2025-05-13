@@ -89,7 +89,7 @@ class MQL:
             self.critic_optimizer = optim.Adam(self.critic.parameters())
 
         # TODO: get correct input size @kevin
-        self.context_encoder = nn.GRU(input_size=128, hidden_size=128, num_layers=2, batch_first=True)  
+        self.context_encoder = nn.GRU(input_size=551, hidden_size=128, num_layers=2, batch_first=True)  
 
         print('-----------------------------')
         print('Optim Params')
@@ -109,19 +109,37 @@ class MQL:
         the final hidden vector (batch, context_dim).
         """
         hist_actions, hist_rewards, hist_obs = act_rew_obs
-        # hist_actions: (B, H, A), hist_rewards: (B, H), hist_obs: dict of (B, H, d_k)
-        # flatten obs sequence
+
+        if hist_rewards.dim() == 1:
+            hist_rewards = hist_rewards.unsqueeze(-1)
+
+        # Fix shape: squeeze hist_actions if needed
+        if hist_actions.dim() == 4:
+            hist_actions = hist_actions.squeeze(2)
+
+        # Fix shape: squeeze obs tensors to (B, H, d_k)
+        for k in hist_obs:
+            while hist_obs[k].dim() > 3:
+                hist_obs[k] = hist_obs[k].squeeze(2)
+
         obs_seq = torch.cat(
             [hist_obs[k].reshape(hist_obs[k].size(0), hist_obs[k].size(1), -1)
-                for k in sorted(hist_obs.keys())],
+            for k in sorted(hist_obs.keys())],
             dim=2
-        )  # (B, H, obs_dim)
-        # make reward vector (B, H, 1)
+        )
+        # print("DEBUG: Flattened obs_seq shape:", obs_seq.shape)
+
+        # (B, H, 1)
         rew_seq = hist_rewards.unsqueeze(-1)
-        # concatenate into (B, H, A+1+obs_dim)
+
+        # (B, H, A+1+obs_dim)
         seq = torch.cat([hist_actions, rew_seq, obs_seq], dim=2)
-        _, h_n = self.context_encoder(seq)      # h_n: (1, B, context_dim)
-        return h_n.squeeze(0)                   # (B, context_dim)
+
+        # Pass through GRU
+        _, h_n = self.context_encoder(seq)
+
+        output = h_n.squeeze(0)
+        return output
 
     def copy_model_params(self):
         '''
@@ -585,16 +603,17 @@ class MQL:
             # Delayed policy updates
             ########
             if it % self.policy_freq == 0:
+                # Recompute ctxt_feats to avoid reusing freed graph
+                ctxt_feats_actor = self.get_context_feats(pre_act_rew)
 
                 # Compute actor loss
-                actor_loss = -self.critic.Q1(obs, self.actor(obs, ctxt_feats), ctxt_feats).mean()
+                actor_loss = -self.critic.Q1(obs, self.actor(obs, ctxt_feats_actor), ctxt_feats_actor).mean()
                 actor_loss_out += actor_loss.item()
 
                 # Optimize the actor
                 self.actor_optimizer.zero_grad()
                 actor_loss.backward()
                 self.actor_optimizer.step()
-
 
                 # Update the frozen target models
                 for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
