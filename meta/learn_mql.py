@@ -165,6 +165,9 @@ class ActorNetwork(nn.Module):
         scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
         vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
+        print(f"OBS: {observations}")
+        print(f"CONTEXT: {context_feats}")
+
         joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats), dim=1)
         return self.action_layer(joint)
 
@@ -244,6 +247,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         device=mql_args.get('device', 'cpu'),
         handle_timeout_termination=False,
     )
+
     iterations = train_args.get('iterations')
 
     for it in range(iterations):
@@ -268,7 +272,6 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         while not done:
             # Convert observations to tensors
             obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}
-
             # Choose action
             action = actor(obs_tensor, None).detach().numpy()
 
