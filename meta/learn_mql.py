@@ -210,6 +210,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
     print(mql_args)
     print(f"Using device: {mql_args.get('device')}")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Initialize MQL
     mql = MQL(
@@ -289,7 +290,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         while not done:
             print("inner loop:{iqqq}")
             # Convert observations to tensors
-            obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}
+            obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}.to(mql.device)
             # Choose action
             # Step 1: Convert historical data to tensors
             hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H, A)
@@ -302,7 +303,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             }
 
             # Step 2: Get context features from the MQL context encoder
-            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor))  # (1, context_dim)
+            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)  # (1, context_dim)
 
             # Step 3: Pass context_feats to actor
             action = actor(obs_tensor, context_feats).detach().cpu().numpy()

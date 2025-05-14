@@ -52,11 +52,11 @@ class MQL:
             lam_csc: logisitc regression reg, samller means stronger reg
             adaptive_beta_clip: decide whether to use adaptive beta clip
         '''
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.actor = actor.to(device)
-        self.actor_target = actor_target.to(device)
-        self.critic = critic.to(device)
-        self.critic_target = critic_target.to(device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.actor = actor.to(self.device)
+        self.actor_target = actor_target.to(self.device)
+        self.critic = critic.to(self.device)
+        self.critic_target = critic_target.to(self.device)
         self.gamma = gamma
         self.ptau = ptau
         self.policy_noise = policy_noise
@@ -99,7 +99,7 @@ class MQL:
             self.critic_optimizer = optim.Adam(self.critic.parameters())
 
         # TODO: get correct input size @kevin
-        self.context_encoder = nn.GRU(input_size=551, hidden_size=128, num_layers=2, batch_first=True).to(device)
+        self.context_encoder = nn.GRU(input_size=551, hidden_size=128, num_layers=2, batch_first=True).to(self.device)
 
         print('-----------------------------')
         print('Optim Params')
