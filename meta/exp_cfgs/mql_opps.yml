@@ -88,7 +88,7 @@ train_params:
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
-  iterations: 2_500
+  iterations: 500
 
 
 log:
