@@ -98,7 +98,7 @@ class MQL:
             self.critic_optimizer = optim.Adam(self.critic.parameters())
 
         # TODO: get correct input size @kevin
-        self.context_encoder = nn.GRU(input_size=551, hidden_size=128, num_layers=2, batch_first=True)  
+        self.context_encoder = nn.GRU(input_size=551, hidden_size=128, num_layers=2, batch_first=True).to(self.device)
 
         print('-----------------------------')
         print('Optim Params')

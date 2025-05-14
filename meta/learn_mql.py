@@ -167,6 +167,13 @@ class ActorNetwork(nn.Module):
         scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
         vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
+        device = context_feats.device
+
+        heading_embed = heading_embed.to(device)
+        pose_embed = pose_embed.to(device)
+        scan_embed = scan_embed.to(device)
+        vel_embed = vel_embed.to(device)
+
         joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1]), dim=1)
         return self.action_layer(joint)
 
