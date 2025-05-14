@@ -52,10 +52,10 @@ class MQL:
             lam_csc: logisitc regression reg, samller means stronger reg
             adaptive_beta_clip: decide whether to use adaptive beta clip
         '''
-        self.actor = actor
-        self.actor_target = actor_target
-        self.critic = critic
-        self.critic_target = critic_target
+        self.actor = actor.to(self.device)
+        self.actor_target = actor_target.to(self.device)
+        self.critic = critic.to(self.device)
+        self.critic_target = critic_target.to(self.device)
         self.gamma = gamma
         self.ptau = ptau
         self.policy_noise = policy_noise
