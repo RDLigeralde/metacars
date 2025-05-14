@@ -196,7 +196,8 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         )
         return Monitor(viewer)
 
-    num_envs = env_args.get('count', 1)
+
+    num_envs = env_args.get('num_envs').get('count', 1)
 
     print(f'NUM ENVS: {num_envs}')
 
