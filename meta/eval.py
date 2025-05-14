@@ -7,12 +7,13 @@ from sb3_contrib import RecurrentPPO
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
-
+import torch
 from utils import cfg_from_yaml
 from typing import List, Optional
 import argparse
 import time
 import os
+from learn_mql import ActorNetwork
 import csv
 
 def evaluate(
@@ -50,8 +51,15 @@ def evaluate(
     recurrent = ppo_args.pop('recurrent', False)
     ppo_args.pop('init_path', None)
     model_class = RecurrentPPO if recurrent else PPO
-    model = model_class.load(model_path, env)
-    model.set_env(env)
+
+    observation_space = env.observation_space
+    print(observation_space)
+
+    action_space = env.action_space
+    action_dim = action_space.shape[1]
+    model = ActorNetwork(observation_space, action_dim, features_dim=256)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
 
     # Prepare log file
     log_file = "evaluation_log.csv"
@@ -80,7 +88,7 @@ def evaluate(
                 if recurrent:
                     action, lstm_states = model.predict(obs, deterministic=deterministic, state=lstm_states)
                 else:
-                    action, _ = model.predict(obs, deterministic=deterministic)
+                    action = model.forward(obs)
 
                 if use_vecnorm:
                     obs, reward, terminated, info = env.step(action)

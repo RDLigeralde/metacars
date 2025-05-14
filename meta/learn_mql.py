@@ -362,10 +362,14 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             })
 
             
-    # Save the final model
-    final_model_path = f"models/{log_args['run_name']}/final_model"
+    final_model_path = f"models/{log_args['project_name']}/final_model.pth"
     os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
-    torch.save(mql.actor.state_dict(), final_model_path)
+
+    torch.save({
+        'actor': mql.actor.state_dict(),
+        'context_encoder': mql.context_encoder.state_dict()
+    }, final_model_path)
+
     print(f"Final model saved to {final_model_path}")
 
 

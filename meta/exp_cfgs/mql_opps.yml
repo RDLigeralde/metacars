@@ -3,7 +3,7 @@ world:
   map: IMS # either single map or dir to be sampled from in domain randomization
   num_agents: 2
   num_envs:
-    count: -1 # set -1 to use number of cpu cores
+    count: 1 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
