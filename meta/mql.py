@@ -548,8 +548,6 @@ class MQL:
         actor_loss_out = 0.0
         critic_loss_out = 0.0
 
-        print(iterations)
-
         ### if there is no eough data in replay buffer, then reduce size of iteration to 20:
         #if replay_buffer.size_rb() < iterations or replay_buffer.size_rb() <  self.batch_size * iterations:
         #    temp = int( replay_buffer.size_rb()/ (self.batch_size) % iterations ) + 1

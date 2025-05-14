@@ -267,7 +267,6 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
     iterations = train_args.get('iterations')
 
     for it in range(iterations):
-        print(f"iteration {it}")
         obs = env.reset()
         done = False
 
@@ -286,81 +285,59 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             for key, value in obs.items()
         }
 
-        iqqq = 0
+        # Profile the inner loop duration
+        while not done:
+            # Convert observations to tensors
+            obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
 
-        for it in range(iterations):
-            print(f"iteration {it}")
-            obs = env.reset()
-            done = False
+            hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_obs_tensor = {
+                k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                for k, v in historical_observations.items()
+            }
+            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
+            action = actor(obs_tensor, context_feats).detach().cpu().numpy()
 
-            # Initialize placeholders for previous and historical values
-            previous_action = np.zeros_like(env.action_space.sample())  # Initialize with zeros
-            previous_reward = 0.0
+            next_obs, reward, done, info = env.step(action)
+
+            replay_buffer.add(
+                obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None
+            )
+            # Update previous values
+            previous_action = action
+            previous_reward = reward
             previous_obs = obs
 
-            H = 10  # History window size
+            historical_actions = np.roll(historical_actions, shift=-1, axis=0)
+            historical_actions[-1] = action
 
-            # Initialize historical buffers as zero tensors
-            historical_actions = np.zeros((H, *env.action_space.shape), dtype=np.float32)
-            historical_rewards = np.zeros((H,), dtype=np.float32)
-            historical_observations = {
-                key: np.zeros((H, *value.shape), dtype=np.float32)
-                for key, value in obs.items()
-            }
+            historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
+            historical_rewards[-1] = reward
 
-            # Profile the inner loop duration
-            while not done:
-                # Convert observations to tensors
-                obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
-
-                hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
-                hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)
-                hist_obs_tensor = {
-                    k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
-                    for k, v in historical_observations.items()
-                }
-                context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
-                action = actor(obs_tensor, context_feats).detach().cpu().numpy()
-
-                next_obs, reward, done, info = env.step(action)
-
-                replay_buffer.add(
-                    obs=obs,
-                    next_obs=next_obs,
-                    action=action,
-                    reward=reward,
-                    done=done,
-                    prev_action=previous_action, 
-                    prev_reward=previous_reward,
-                    prev_obs=previous_obs,
-                    historical_action=historical_actions,
-                    historical_reward=historical_rewards,
-                    historical_obs=historical_observations,
-                    infos=None
-                )
-                # Update previous values
-                previous_action = action
-                previous_reward = reward
-                previous_obs = obs
-
-                historical_actions = np.roll(historical_actions, shift=-1, axis=0)
-                historical_actions[-1] = action
-
-                historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
-                historical_rewards[-1] = reward
-
-                for key in historical_observations:
-                    historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
-                    historical_observations[key][-1] = obs[key]
+            for key in historical_observations:
+                historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
+                historical_observations[key][-1] = obs[key]
 
 
-                train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 20))
+            train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 20))
 
-                if run and it % 1000 == 0:
-                    wandb.log({
-                        'critic_loss': train_metrics[0]['critic_loss'],
-                        'actor_loss': train_metrics[0]['actor_loss']
-                    })
+        if run:
+            wandb.log({
+                'critic_loss': train_metrics[0]['critic_loss'],
+                'actor_loss': train_metrics[0]['actor_loss']
+            })
 
             
     # Save the final model
