@@ -6,6 +6,7 @@ import numpy as np
 import torch.optim as optim
 from copy import deepcopy
 from sklearn.linear_model import LogisticRegression as logistic
+import math
 
 class MQL:
 
@@ -33,6 +34,9 @@ class MQL:
                 use_ess_clipping = False,
                 use_normalized_beta = True,
                 reset_optims = False,
+                adaptive_beta_clip = False,
+                beta_clip_k: float = 2.0,          #   β ≤ μ + k·σ
+                beta_var_momentum: float = 0.9,    #   running-stat smoothing
                 ):
 
         '''
@@ -46,6 +50,7 @@ class MQL:
             policy_freq: delayed policy updates
             enable_beta_obs_cxt:  decide whether to concat obs and ctx for logistic regresstion
             lam_csc: logisitc regression reg, samller means stronger reg
+            adaptive_beta_clip: decide whether to use adaptive beta clip
         '''
         self.actor = actor
         self.actor_target = actor_target
@@ -72,7 +77,11 @@ class MQL:
         self.set_training_style()
         self.lr = lr
         self.reset_optims = reset_optims
-
+        self.adaptive_beta_clip = adaptive_beta_clip
+        self.beta_clip_k = beta_clip_k
+        self.beta_var_momentum = beta_var_momentum
+        self.running_beta_mean = None
+        self.running_beta_var = None
         # load tragtes models.
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.critic_target.load_state_dict(self.critic.state_dict())
@@ -311,9 +320,35 @@ class MQL:
 
         # To make it more stable, clip it
         f_prop = f_prop.clamp(min=-self.beta_clip)
-
+        
         # step 2: exp(-f(X)), f_score: N * 1
         f_score = torch.exp(-f_prop)
+        # -- variance-aware beta-clipping ------------------------------------
+        # β_raw  =  exp(-f(x))   (Eq.11 in the paper)
+        beta_raw = torch.exp(-f_prop)               # (B,1)
+
+        if self.adaptive_beta_clip:
+            # update running mean & var with EMA
+            batch_mean = beta_raw.mean()
+            batch_var  = beta_raw.var(unbiased=False)
+
+            if self.running_beta_mean is None:      # first batch
+                self.running_beta_mean = batch_mean.item()
+                self.running_beta_var  = batch_var.item()
+            else:
+                m  = self.beta_var_momentum
+                self.running_beta_mean = m * self.running_beta_mean + (1-m) * batch_mean.item()
+                self.running_beta_var  = m * self.running_beta_var  + (1-m) * batch_var.item()
+
+            clip_val  = self.running_beta_mean + self.beta_clip_k * \
+                        math.sqrt(self.running_beta_var + self.r_eps)
+            beta_clipped = torch.clamp(beta_raw, max=clip_val)
+        else:                                   # legacy constant clip
+            beta_clipped = torch.clamp(beta_raw, max=self.beta_clip)
+
+        f_score = beta_clipped               
+
+
         f_score[f_score < 0.1]  = 0 # for numerical stability
 
         if self.use_normalized_beta == True:

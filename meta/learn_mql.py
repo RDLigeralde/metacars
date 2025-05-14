@@ -215,6 +215,9 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         policy_freq=mql_args.get('policy_freq', 2),
         batch_size=mql_args.get('batch_size', 100),
         device=mql_args.get('device', 'cpu'),
+        adaptive_beta_clip=mql_args.get('adaptive_beta_clip', False),
+        beta_clip_k = mql_args.get('beta_clip_k', 2.5),
+        beta_var_momentum = mql_args.get('beta_var_momentum', 0.9),
         max_action=1.0
     )
 
