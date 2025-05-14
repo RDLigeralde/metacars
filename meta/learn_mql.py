@@ -7,6 +7,7 @@ from mql import MQL
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.buffers import DictReplayBuffer
+from stable_baselines3.common.env_util import make_vec_env
 import numpy as np
 from gymnasium.spaces import Box, Dict
 from GigaBuffer import GigaBuffer
@@ -123,9 +124,9 @@ class ActorNetwork(nn.Module):
 
         # Define separate MLPs for each observation type
         self.heading_mlp = nn.Sequential(
-            nn.Linear(heading_dim, 64),
+            nn.Linear(heading_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 64),
+            nn.Linear(128, 64),
             nn.ReLU(),
         )
 
@@ -158,7 +159,7 @@ class ActorNetwork(nn.Module):
             nn.Linear(total_embed_dim, features_dim),
             nn.ReLU(),
             nn.Linear(features_dim, action_dim),  # Match the action_dim 
-            nn.Tanh(),  # Assuming actions are normalized between -1 and 1
+            nn.Tanh(), 
         )
 
     def forward(self, observations: dict, context_feats: torch.Tensor) -> torch.Tensor:
@@ -195,7 +196,24 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         )
         return Monitor(viewer)
 
-    env = DummyVecEnv([make_env])
+    num_envs = env_args.get('count', 1)
+
+    if num_envs == 1:
+        env = make_env()
+        env = DummyVecEnv([lambda: env])
+    elif num_envs > 1:
+        env = make_vec_env(
+            make_env,
+            n_envs=num_envs,
+            vec_env_cls=DummyVecEnv
+        )
+    else:
+        num_envs = os.cpu_count()
+        env = make_vec_env(
+            make_env,
+            n_envs=num_envs,
+            vec_env_cls=DummyVecEnv
+        )
 
     observation_space = env.observation_space
     print(observation_space)
@@ -255,7 +273,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
     # training loopno
     replay_buffer = GigaBuffer(
-        buffer_size=1000,  # Set buffer size
+        buffer_size=1024,  # Set buffer size
         observation_space= env.observation_space,
         action_space=env.action_space,
         device=mql_args.get('device', 'cpu'),
