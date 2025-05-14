@@ -66,7 +66,7 @@ reward_params:
 ppo_params:
   init_path: null # if resuming a run
   recurrent: False
-  device: cpu # actually faster on cpu, for some reason
+  device: cuda # actually faster on cpu, for some reason
   learning_rate: 0.0001
   n_steps: 2048
   batch_size: 64
@@ -91,5 +91,5 @@ train_params:
 
 log:
   log_tensorboard: True
-  project_name: ims_vanilla_dr # set null to disable wandb
+  project_name: mql_opps # set null to disable wandb
   run_name: null
