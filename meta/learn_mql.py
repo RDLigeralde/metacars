@@ -201,6 +201,8 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
     critic = CriticNetwork(observation_space, action_dim, features_dim=256)
     critic_target = CriticNetwork(observation_space, action_dim, features_dim=256)
 
+    print(f"Using device: {mql_args.get('device')}")
+
     # Initialize MQL
     mql = MQL(
         actor=actor,
