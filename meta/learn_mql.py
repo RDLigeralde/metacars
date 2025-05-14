@@ -290,7 +290,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         while not done:
             print("inner loop:{iqqq}")
             # Convert observations to tensors
-            obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}.to(mql.device)
+            obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
             # Choose action
             # Step 1: Convert historical data to tensors
             hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H, A)

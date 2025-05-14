@@ -397,14 +397,15 @@ class MQL:
             else:
                 x, y, u, r, d, pu, pr, px, nu, nr, nx = replay_buffer.sample(current_batch_size)
 
-            obs = torch.FloatTensor(x).to(self.device)
-            next_obs = torch.FloatTensor(y).to(self.device)
-            action = torch.FloatTensor(u).to(self.device)
-            reward = torch.FloatTensor(r).to(self.device)
-            mask = torch.FloatTensor(1 - d).to(self.device)
-            previous_action = torch.FloatTensor(pu).to(self.device)
-            previous_reward = torch.FloatTensor(pr).to(self.device)
-            previous_obs = torch.FloatTensor(px).to(self.device)
+            obs = torch.tensor(x, dtype=torch.float32, device=self.device)
+            next_obs = torch.tensor(y, dtype=torch.float32, device=self.device)
+            action = torch.tensor(u, dtype=torch.float32, device=self.device)
+            reward = torch.tensor(r, dtype=torch.float32, device=self.device)
+            mask = torch.tensor(1 - d, dtype=torch.float32, device=self.device)
+            previous_action = torch.tensor(pu, dtype=torch.float32, device=self.device)
+            previous_reward = torch.tensor(pr, dtype=torch.float32, device=self.device)
+            previous_obs = torch.tensor(px, dtype=torch.float32, device=self.device)
+
 
             # list of hist_actions and hist_rewards which are one time ahead of previous_ones
             # example:
@@ -579,12 +580,13 @@ class MQL:
             
             obs = {k: v.to(self.device) for k, v in x.items()}
             next_obs = {k: v.to(self.device) for k, v in x.items()}
-            action = torch.FloatTensor(u).to(self.device)
-            reward = torch.FloatTensor(r).to(self.device)
-            mask = torch.FloatTensor(1 - d).to(self.device)
-            previous_action = torch.FloatTensor(pu).to(self.device)
-            previous_reward = torch.FloatTensor(pr).to(self.device)
+            action = torch.tensor(u, dtype=torch.float32, device=self.device)
+            reward = torch.tensor(r, dtype=torch.float32, device=self.device)
+            mask = torch.tensor(1 - d, dtype=torch.float32, device=self.device)
+            previous_action = torch.tensor(pu, dtype=torch.float32, device=self.device)
+            previous_reward = torch.tensor(pr, dtype=torch.float32, device=self.device)
             previous_obs = {k: v.to(self.device) for k, v in x.items()}
+
 
             # list of hist_actions and hist_rewards which are one time ahead of previous_ones
             # example:
