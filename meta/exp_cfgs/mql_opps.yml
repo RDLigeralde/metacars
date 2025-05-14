@@ -88,6 +88,8 @@ train_params:
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
+  iterations: 1_000_000
+
 
 log:
   log_tensorboard: True

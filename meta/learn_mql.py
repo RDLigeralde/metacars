@@ -201,6 +201,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
     critic = CriticNetwork(observation_space, action_dim, features_dim=256)
     critic_target = CriticNetwork(observation_space, action_dim, features_dim=256)
 
+    print(mql_args)
     print(f"Using device: {mql_args.get('device')}")
 
     # Initialize MQL
@@ -252,9 +253,12 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         handle_timeout_termination=False,
     )
 
+    print(train_args)
+
     iterations = train_args.get('iterations')
 
     for it in range(iterations):
+        print(f"iteration {it}")
         obs = env.reset()
         done = False
 
@@ -273,7 +277,10 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             for key, value in obs.items()
         }
 
+        iqqq = 0
+
         while not done:
+            print("inner loop:{iqqq}")
             # Convert observations to tensors
             obs_tensor = {key: torch.tensor(value, dtype=torch.float32) for key, value in obs.items()}
             # Choose action
