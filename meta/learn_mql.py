@@ -198,6 +198,8 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
     num_envs = env_args.get('count', 1)
 
+    print(f'NUM ENVS: {num_envs}')
+
     if num_envs == 1:
         env = make_env()
         env = DummyVecEnv([lambda: env])
@@ -208,6 +210,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             vec_env_cls=DummyVecEnv
         )
     else:
+        print(f'OS CPU COUNT: {os.cpu_count()}')
         num_envs = os.cpu_count()
         env = make_vec_env(
             make_env,
