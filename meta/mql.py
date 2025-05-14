@@ -411,9 +411,9 @@ class MQL:
             # example:
             # previous_action = [t-3, t-2, t-1]
             # hist_actions    = [t-2, t-1, t]
-            hist_actions = torch.FloatTensor(nu).to(self.device)
-            hist_rewards = torch.FloatTensor(nr).to(self.device)
-            hist_obs     = torch.FloatTensor(nx).to(self.device)
+            hist_actions = torch.tensor(nu, dtype=torch.float32, device=self.device)
+            hist_rewards = torch.tensor(nr, dtype=torch.float32, device=self.device)
+            hist_obs     = torch.tensor(nx, dtype=torch.float32, device=self.device)
 
 
             # combine reward and action
@@ -592,9 +592,9 @@ class MQL:
             # example:
             # previous_action = [t-3, t-2, t-1]
             # hist_actions    = [t-2, t-1, t]
-            hist_actions = torch.FloatTensor(nu).to(self.device)
-            hist_rewards = torch.FloatTensor(nr).to(self.device)
-            hist_obs = {k: v.to(self.device) for k, v in nx.items()}
+            hist_actions = torch.tensor(nu, dtype=torch.float32, device=self.device)
+            hist_rewards = torch.tensor(nr, dtype=torch.float32, device=self.device)
+            hist_obs = {k: torch.tensor(v, dtype=torch.float32, device=self.device) for k, v in nx.items()}
             # combine reward and action
             act_rew = [hist_actions, hist_rewards, hist_obs] # torch.cat([action, reward], dim = -1)
             pre_act_rew = [previous_action, previous_reward, previous_obs] #torch.cat([previous_action, previous_reward], dim = -1)
