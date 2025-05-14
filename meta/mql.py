@@ -53,6 +53,7 @@ class MQL:
             adaptive_beta_clip: decide whether to use adaptive beta clip
         '''
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f'USING DEVICE: {self.device}')
         self.actor = actor.to(self.device)
         self.actor_target = actor_target.to(self.device)
         self.critic = critic.to(self.device)
@@ -546,6 +547,8 @@ class MQL:
         '''
         actor_loss_out = 0.0
         critic_loss_out = 0.0
+
+        print(iterations)
 
         ### if there is no eough data in replay buffer, then reduce size of iteration to 20:
         #if replay_buffer.size_rb() < iterations or replay_buffer.size_rb() <  self.batch_size * iterations:

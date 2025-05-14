@@ -10,6 +10,7 @@ from stable_baselines3.common.buffers import DictReplayBuffer
 import numpy as np
 from gymnasium.spaces import Box, Dict
 from GigaBuffer import GigaBuffer
+import time
 import wandb
 
 from utils import cfg_from_yaml
@@ -287,82 +288,81 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
         iqqq = 0
 
-        while not done:
-            print("inner loop:{iqqq}")
-            # Convert observations to tensors
-            obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
-            # Choose action
-            # Step 1: Convert historical data to tensors
-            hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H, A)
-            hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)  # (1, H)
+        for it in range(iterations):
+            print(f"iteration {it}")
+            obs = env.reset()
+            done = False
 
-            # Each obs[key] has shape (H, d), make a batched dict: {key: (1, H, d)}
-            hist_obs_tensor = {
-                k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
-                for k, v in historical_observations.items()
-            }
-
-            # Step 2: Get context features from the MQL context encoder
-            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)  # (1, context_dim)
-
-            # Step 3: Pass context_feats to actor
-            action = actor(obs_tensor, context_feats).detach().cpu().numpy()
-
-            # Step the environment
-            next_obs, reward, done, info = env.step(action)
-
-            # Add to replay buffer with previous and historical values in infos
-            replay_buffer.add(
-                obs=obs,
-                next_obs=next_obs,
-                action=action,
-                reward=reward,
-                done=done,
-                prev_action=previous_action, 
-                prev_reward=previous_reward,
-                prev_obs=previous_obs,
-                historical_action=historical_actions,
-                historical_reward=historical_rewards,
-                historical_obs=historical_observations,
-                infos = None
-            )
-
-            # Update previous values
-            previous_action = action
-            previous_reward = reward
+            # Initialize placeholders for previous and historical values
+            previous_action = np.zeros_like(env.action_space.sample())  # Initialize with zeros
+            previous_reward = 0.0
             previous_obs = obs
 
-            historical_actions = np.roll(historical_actions, shift=-1, axis=0)
-            historical_actions[-1] = action
+            H = 10  # History window size
 
-            historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
-            historical_rewards[-1] = reward
+            # Initialize historical buffers as zero tensors
+            historical_actions = np.zeros((H, *env.action_space.shape), dtype=np.float32)
+            historical_rewards = np.zeros((H,), dtype=np.float32)
+            historical_observations = {
+                key: np.zeros((H, *value.shape), dtype=np.float32)
+                for key, value in obs.items()
+            }
 
-            for key in historical_observations:
-                historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
-                historical_observations[key][-1] = obs[key]
+            # Profile the inner loop duration
+            while not done:
+                # Convert observations to tensors
+                obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
 
-            # Limit the size of historical buffers (e.g., keep the last 10 steps)
-            if len(historical_actions) > 10:
-                historical_actions.pop(0)
-            if len(historical_rewards) > 10:
-                historical_rewards.pop(0)
-            if len(historical_observations) > 10:
-                historical_observations.pop(0)
+                hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                hist_obs_tensor = {
+                    k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                    for k, v in historical_observations.items()
+                }
+                context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
+                action = actor(obs_tensor, context_feats).detach().cpu().numpy()
 
-            # Move to the next observation
-            obs = next_obs
+                next_obs, reward, done, info = env.step(action)
 
-            # Perform training
-            train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 2048))
+                replay_buffer.add(
+                    obs=obs,
+                    next_obs=next_obs,
+                    action=action,
+                    reward=reward,
+                    done=done,
+                    prev_action=previous_action, 
+                    prev_reward=previous_reward,
+                    prev_obs=previous_obs,
+                    historical_action=historical_actions,
+                    historical_reward=historical_rewards,
+                    historical_obs=historical_observations,
+                    infos=None
+                )
+                # Update previous values
+                previous_action = action
+                previous_reward = reward
+                previous_obs = obs
 
-            if run:
-                wandb.log({
-                    'critic_loss': train_metrics[0]['critic_loss'],
-                    'actor_loss': train_metrics[0]['actor_loss']
-                })
+                historical_actions = np.roll(historical_actions, shift=-1, axis=0)
+                historical_actions[-1] = action
+
+                historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
+                historical_rewards[-1] = reward
+
+                for key in historical_observations:
+                    historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
+                    historical_observations[key][-1] = obs[key]
 
 
+                train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 20))
+
+                if run and it % 1000 == 0:
+                    wandb.log({
+                        'critic_loss': train_metrics[0]['critic_loss'],
+                        'actor_loss': train_metrics[0]['actor_loss']
+                    })
+
+            
     # Save the final model
     final_model_path = f"models/{log_args['run_name']}/final_model"
     os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
