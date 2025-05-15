@@ -178,7 +178,7 @@ class ActorNetwork(nn.Module):
             scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
             vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
-
+        context_feats = context_feats.to(heading_embed.device)
         joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1]), dim=1)
         return self.action_layer(joint)
 
@@ -334,7 +334,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 for k, v in historical_observations.items()
             }
             context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
-            action = actor(obs_tensor, context_feats).detach().numpy()
+            action = actor(obs_tensor, context_feats).cpu().detach().numpy()
 
             next_obs, reward, done, info = env.step(action)
 
@@ -460,7 +460,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 for k, v in historical_observations.items()
             }
             context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
-            action = actor(obs_tensor, context_feats).detach().numpy()
+            action = actor(obs_tensor, context_feats).cpu().detach().numpy()
 
             next_obs, reward, done, info = env.step(action)
 
@@ -593,7 +593,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 for k, v in historical_observations.items()
             }
             context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
-            action = actor(obs_tensor, context_feats).detach().numpy()
+            action = actor(obs_tensor, context_feats).cpu().detach().numpy()
 
             next_obs, reward, done, info = env.step(action)
 

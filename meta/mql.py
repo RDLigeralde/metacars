@@ -249,13 +249,13 @@ class MQL:
         else:
             # step 1: calculate how many samples per classes we need
             task_bsize = int(512 / (4)) + 2
-            neg_tasks_ids = list([2.0 + i for i in range(1)].difference(set([task_id])))
+            neg_tasks_ids = list([2.0 + i for i in range(5)].difference(set([task_id])))
 
         # collect examples from other tasks and consider them as one class
         # view --> len(neg_tasks_ids),task_bsize, D ==> len(neg_tasks_ids) * task_bsize, D
         pu, pr, px, xx = self.sample_from_tasks(train_tasks_buffer, neg_tasks_ids, task_bsize, device=self.device)
-        neg_actions = torch.FloatTensor(pu).to(self.device)
-        neg_rewards = torch.FloatTensor(pr).to(self.device)
+        neg_actions = pu.to(self.device)
+        neg_rewards = pr.to(self.device)
         neg_obs = {k: v.permute(1, 0, 2) for k,v in px.items()}
         neg_xx = {k: v.permute(1, 0, 2) for k,v in xx.items()}
 
@@ -267,8 +267,8 @@ class MQL:
             batch_size=task_bsize,
             device=self.device
         )
-        pos_actions = torch.FloatTensor(ppu).to(self.device)
-        pos_rewards = torch.FloatTensor(ppr).to(self.device)
+        pos_actions = ppu.to(self.device)
+        pos_rewards = ppr.to(self.device)
         pos_obs = {k: v.permute(1, 0, 2) for k,v in ppx.items()}
         pos_pxx = {k: v.permute(1, 0, 2) for k, v in pxx.items()}
 
@@ -491,7 +491,7 @@ class MQL:
             # combine reward and action
             act_rew = [hist_actions, hist_rewards, hist_obs] # torch.cat([action, reward], dim = -1)
             pre_act_rew = [previous_action, previous_reward, previous_obs] #torch.cat([previous_action, previous_reward], dim = -1)
-            print(f'PRE ACT: {pre_act_rew[0].shape}, {pre_act_rew[1].shape}')
+            # print(f'PRE ACT: {pre_act_rew[0].shape}, {pre_act_rew[1].shape}')
             ctxt_feats = self.get_context_feats(pre_act_rew)
 
             if csc_model is None:

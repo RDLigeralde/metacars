@@ -66,10 +66,10 @@ reward_params:
 ppo_params:
   init_path: null # if resuming a run
   recurrent: False
-  device: cpu # actually faster on cpu, for some reason
+  device: cuda # actually faster on cpu, for some reason
   learning_rate: 0.0001
   n_steps: 64
-  batch_size: 8
+  batch_size: 64
   n_epochs: 8
   gamma: 0.99
   gae_lambda: 0.95
@@ -89,8 +89,8 @@ train_params:
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
-  iterations_pre: 16
-  iterations_adapt: 2
+  iterations_pre: 50
+  iterations_adapt: 5
 
 
 log:
