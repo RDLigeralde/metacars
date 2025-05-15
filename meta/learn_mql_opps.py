@@ -509,7 +509,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
             data_gather_idx += 1
 
-        if data_gather_idx > 100:
+        if data_gather_idx > 200:
             adapt_metrics, _ = mql.adapt(
                 train_replay_buffer=replay_buffer,            
                 train_tasks_buffer=task_buffers,             
@@ -642,7 +642,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
             data_gather_idx += 1
 
-        if data_gather_idx > 100:
+        if data_gather_idx > 200:
             adapt_metrics, _ = mql.adapt(
                 train_replay_buffer=replay_buffer,            
                 train_tasks_buffer=task_buffers,             
