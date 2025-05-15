@@ -611,15 +611,15 @@ class F110MultiView(gym.Wrapper):
         if self.loader is not None:
             self.opponent, self.opp_vmax = self.loader.sample()
 
-
         obs, info = self.env.reset(seed=seed, options=options)
-        return self._ego_observe(obs, self.ego_idx), self.opp_vmax
+        return self._ego_observe(obs, self.ego_idx), info
 
     def step(self, action) -> Tuple[dict, float, bool, bool, dict]:
         obs = self.env.unwrapped.observation_type.observe()
         opp_obs = self._ego_observe(obs, self.opponent_idx)
         opponent_action = self.opponent(opp_obs) if self.opponent else None
 
+        action = action.detach().numpy()
         if action.shape[0] == 2: # hack for recurrent policy
             action = np.expand_dims(action, axis=0)
 

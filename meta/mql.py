@@ -580,7 +580,7 @@ class MQL:
 
             
             obs = {k: v.to(self.device) for k, v in x.items()}
-            next_obs = {k: v.to(self.device) for k, v in x.items()}
+            next_obs = {k:v.to(self.device) for k, v in y.items()}
             action = torch.tensor(u, dtype=torch.float32, device=self.device)
             reward = torch.tensor(r, dtype=torch.float32, device=self.device)
             mask = torch.tensor(1 - d, dtype=torch.float32, device=self.device)
@@ -609,8 +609,19 @@ class MQL:
             # e ~ clip(N(0, \sigma), -c, c)
             ########
             noise = (torch.randn_like(action) * self.policy_noise ).clamp(-self.noise_clip, self.noise_clip)
+
+            print("Type of action:", type(action))
+            print("Type of noise:", type(noise))
+            print("Type of next_obs:", type(next_obs))
+            print("Type of ctxt_feats:", type(ctxt_feats))
+
+            print(type(self.actor_target(next_obs, ctxt_feats)))
+
+            # Call the actor_target model
             next_action = (self.actor_target(next_obs, ctxt_feats) + noise).clamp(-self.max_action, self.max_action)
 
+            # Type of the result
+            print("Type of next_action:", type(next_action))
             ########
             #  Update critics
             #  1. Compute the target Q value

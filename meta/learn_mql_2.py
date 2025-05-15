@@ -11,7 +11,6 @@ from stable_baselines3.common.env_util import make_vec_env
 import numpy as np
 from gymnasium.spaces import Box, Dict
 from GigaBuffer import GigaBuffer
-from collections import defaultdict
 import time
 import wandb
 
@@ -165,12 +164,24 @@ class ActorNetwork(nn.Module):
 
     def forward(self, observations: dict, context_feats: torch.Tensor) -> torch.Tensor:
         # Process each observation type
-        heading_embed = self.heading_mlp(observations['heading'].squeeze(1))
-        pose_embed = self.pose_mlp(observations['pose'].squeeze(1))
-        scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
-        vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
 
-        joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1]), dim=1)
+        heading = torch.tensor(observations['heading']).float()
+        pose = torch.tensor(observations['pose']).float()
+        scan = torch.tensor(observations['scan']).float()
+        vel = torch.tensor(observations['vel']).float()
+
+        heading_embed = self.heading_mlp(heading.squeeze(0))
+        pose_embed = self.pose_mlp(pose.squeeze(0))
+        scan_embed = self.scan_mlp(scan.squeeze(0))
+        vel_embed = self.vel_mlp(vel.squeeze(0))
+
+        print("heading_embed shape:", heading_embed.shape)
+        print("pose_embed shape:", pose_embed.shape)
+        print("scan_embed shape:", scan_embed.shape)
+        print("vel_embed shape:", vel_embed.shape)
+        print("context_feats[-1] shape:", context_feats[-1].shape)
+
+        joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1].squeeze(0)))
         return self.action_layer(joint)
 
 
@@ -275,20 +286,18 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
 
     iterations = train_args.get('iterations')
 
-    task_buffers = defaultdict(lambda: GigaBuffer(
-    buffer_size=1024,
-    observation_space=env.observation_space,
-    action_space=env.action_space,
-    device=mql_args.get('device', 'cpu'),
-    handle_timeout_termination=False,
-    ))
-
     for it in range(iterations):
-        
-        obs, opp_vmax = env.reset() # Is this workable? 
+        replay_buffer = GigaBuffer(
+        buffer_size=1024,  # Set buffer size
+        observation_space= env.observation_space,
+        action_space=env.action_space,
+        device=mql_args.get('device', 'cpu'),
+        handle_timeout_termination=False,
+        )
+        obs = env.reset()
         done = False
 
-
+        # Initialize placeholders for previous and historical values
         previous_action = np.zeros_like(env.action_space.sample())  # Initialize with zeros
         previous_reward = 0.0
         previous_obs = obs
@@ -315,7 +324,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 for k, v in historical_observations.items()
             }
             context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
-            action = actor(obs_tensor, context_feats).detach().numpy()
+            action = actor(obs_tensor, context_feats).detach().cpu().numpy()
 
             next_obs, reward, done, info = env.step(action)
 
@@ -333,7 +342,6 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 historical_obs=historical_observations,
                 infos=None
             )
-
             # Update previous values
             previous_action = action
             previous_reward = reward
