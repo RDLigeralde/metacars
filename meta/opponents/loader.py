@@ -46,12 +46,22 @@ class PolicyLoader:
         self.rng = np.random.RandomState(seed) if seed is not None else np.random
         self._load_policies()
 
-    def sample(self) -> Tuple[PolicyWrapper, float]:
-        name = np.random.choice(list(self.policies.keys()))
-        policy, vmax = self.policies[name]
-        entropy = self.rng.uniform(self.entropy_min, self.entropy_max)
-        policy.ent_coef = entropy
-        return PolicyWrapper(policy), vmax
+    def get_sampling_keys(self, pre_train: bool): # hard code LOL
+        all_keys = list(self.policies.keys())
+        if pre_train:
+            return [k for k in all_keys if k not in ['ims_6_5', 'ims_7_0']]
+        else:
+            return [k for k in all_keys if k in ['ims_6_5', 'ims_7_0']]
+
+
+    def sample(self, pre_train = True) -> Tuple[PolicyWrapper, float]:
+            name = np.random.choice(self.get_sampling_keys(pre_train))
+            policy, vmax = self.policies[name]
+            entropy = self.rng.uniform(self.entropy_min, self.entropy_max)
+            policy.ent_coef = entropy
+            return PolicyWrapper(policy), vmax
+        
+    
 
     def _load_policies(self) -> None:
         policy_files = glob.glob(f"{self.opp_dir}/*.zip")

@@ -64,8 +64,6 @@ class F110Multi(F110Env):
             )
         self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
 
-        print(f"CFG MAP:{config['map']}")
-
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
         self.vspline = self._get_velocity_spline(raceline)
@@ -608,12 +606,14 @@ class F110MultiView(gym.Wrapper):
         })
 
     def reset(self, seed=None, options=None) -> Tuple[dict, dict]:
+        optionsBool = options.get("isPreTraining") if options else None
+        opp_vmax = None
         if self.loader is not None:
-            self.opponent, self.opp_vmax = self.loader.sample()
-
+            self.opponent, opp_vmax = self.loader.sample(optionsBool)
 
         obs, info = self.env.reset(seed=seed, options=options)
-        return self._ego_observe(obs, self.ego_idx), self.opp_vmax
+        info['opp_vmax'] = opp_vmax
+        return self._ego_observe(obs, self.ego_idx), info
 
     def step(self, action) -> Tuple[dict, float, bool, bool, dict]:
         obs = self.env.unwrapped.observation_type.observe()

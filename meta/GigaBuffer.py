@@ -39,6 +39,9 @@ class GigaBuffer(DictReplayBuffer):
             for key, space in observation_space.spaces.items()
         }
 
+    def size_rb(self, task_id=None):
+        return self.size
+
 
     def add(self, obs, next_obs, action, reward, done, infos,
             prev_action, prev_obs, prev_reward,

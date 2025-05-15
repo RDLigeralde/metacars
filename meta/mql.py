@@ -119,16 +119,18 @@ class MQL:
         Given a history of (actions, rewards, obs), encode with GRU and return
         the final hidden vector (batch, context_dim).
         """
+
         hist_actions, hist_rewards, hist_obs = act_rew_obs
 
         if hist_rewards.dim() == 1:
             hist_rewards = hist_rewards.unsqueeze(-1)
 
-        # Fix shape: squeeze hist_actions if needed
+        # squeeze hist_actions if needed
         if hist_actions.dim() == 4:
             hist_actions = hist_actions.squeeze(2)
 
-        # Fix shape: squeeze obs tensors to (B, H, d_k)
+        # squeeze obs tensors to (B, H, d_k)
+
         for k in hist_obs:
             while hist_obs[k].dim() > 3:
                 hist_obs[k] = hist_obs[k].squeeze(2)
@@ -140,10 +142,18 @@ class MQL:
         )
         # print("DEBUG: Flattened obs_seq shape:", obs_seq.shape)
 
-        # (B, H, 1)
-        rew_seq = hist_rewards.unsqueeze(-1)
+        # # (B, H, 1)
+        rew_seq = hist_rewards
+        if hist_rewards.ndim == 2:
+            rew_seq = hist_rewards.unsqueeze(-1)
 
         # (B, H, A+1+obs_dim)
+
+        # if hist_actions.ndim == 2:
+        #     hist_actions = hist_actions.unsqueeze(-1)
+
+        # print(f"hist_actions: {hist_actions.shape}, rew_seq: {rew_seq.shape}, obs_seq: {obs_seq.shape}")
+
         seq = torch.cat([hist_actions, rew_seq, obs_seq], dim=2)
 
         # Pass through GRU
@@ -195,6 +205,33 @@ class MQL:
         result = sum(param_prox)
 
         return result
+    
+    def sample_from_tasks(self, buffer_dict, task_ids, batch_size, device):
+        all_actions, all_rewards = [], []
+        all_observations = {}
+        all_next_observations = {}
+
+        for task_id in task_ids:
+            sample = buffer_dict[task_id].sample(batch_size)
+
+            # Collect actions and rewards
+            all_actions.append(sample.actions.to(device))
+            all_rewards.append(sample.rewards.to(device))
+
+            # For each key in the observation dict, accumulate across tasks
+            for k, v in sample.observations.items():
+                all_observations.setdefault(k, []).append(v.to(device))
+            for k, v in sample.next_observations.items():
+                all_next_observations.setdefault(k, []).append(v.to(device))
+
+        # Concatenate across tasks along batch dimension (dim=0)
+        all_actions = torch.cat(all_actions, dim=0)
+        all_rewards = torch.cat(all_rewards, dim=0)
+        all_observations = {k: torch.cat(v_list, dim=0) for k, v_list in all_observations.items()}
+        all_next_observations = {k: torch.cat(v_list, dim=0) for k, v_list in all_next_observations.items()}
+
+        return all_actions, all_rewards, all_observations, all_next_observations
+
 
     def train_cs(self, task_id = None, snap_buffer = None, train_tasks_buffer = None, adaptation_step = False):
         '''
@@ -207,30 +244,52 @@ class MQL:
         if adaptation_step == True:
             # step 1: calculate how many samples per classes we need
             # in adaption step, all train task can be used
-            task_bsize = int(snap_buffer.size_rb(task_id) / (len(self.train_tasks_list))) + 2
-            neg_tasks_ids = self.train_tasks_list
-
+            task_bsize = int((512) / (5)) + 2
+            neg_tasks_ids = [2.0 + i for i in range(5)]
         else:
             # step 1: calculate how many samples per classes we need
-            task_bsize = int(snap_buffer.size_rb(task_id) / (len(self.train_tasks_list) - 1)) + 2
-            neg_tasks_ids = list(self.train_tasks_list.difference(set([task_id])))
+            task_bsize = int(512 / (4)) + 2
+            neg_tasks_ids = list([2.0 + i for i in range(1)].difference(set([task_id])))
 
         # collect examples from other tasks and consider them as one class
         # view --> len(neg_tasks_ids),task_bsize, D ==> len(neg_tasks_ids) * task_bsize, D
-        pu, pr, px, xx = train_tasks_buffer.sample(task_ids = neg_tasks_ids, batch_size = task_bsize)
-        neg_actions = torch.FloatTensor(pu).view(task_bsize * len(neg_tasks_ids), -1).to(self.device)
-        neg_rewards = torch.FloatTensor(pr).view(task_bsize * len(neg_tasks_ids), -1).to(self.device)
-        neg_obs = torch.FloatTensor(px).view(task_bsize * len(neg_tasks_ids), -1).to(self.device)
-        neg_xx = torch.FloatTensor(xx).view(task_bsize * len(neg_tasks_ids), -1).to(self.device)
+        pu, pr, px, xx = self.sample_from_tasks(train_tasks_buffer, neg_tasks_ids, task_bsize, device=self.device)
+        neg_actions = torch.FloatTensor(pu).to(self.device)
+        neg_rewards = torch.FloatTensor(pr).to(self.device)
+        neg_obs = {k: v.permute(1, 0, 2) for k,v in px.items()}
+        neg_xx = {k: v.permute(1, 0, 2) for k,v in xx.items()}
 
         # sample cuurent task and consider it as another class
         # returns size: (task_bsize, D)
-        ppu, ppr, ppx, pxx = snap_buffer.sample(task_ids = [task_id], batch_size = snap_buffer.size_rb(task_id))
+        ppu, ppr, ppx, pxx = self.sample_from_tasks(
+            snap_buffer,
+            task_ids=[task_id],
+            batch_size=task_bsize,
+            device=self.device
+        )
         pos_actions = torch.FloatTensor(ppu).to(self.device)
         pos_rewards = torch.FloatTensor(ppr).to(self.device)
-        pos_obs = torch.FloatTensor(ppx).to(self.device)
-        pos_pxx = torch.FloatTensor(pxx).to(self.device)
+        pos_obs = {k: v.permute(1, 0, 2) for k,v in ppx.items()}
+        pos_pxx = {k: v.permute(1, 0, 2) for k, v in pxx.items()}
 
+        # print((pos_actions.shape, pos_rewards.shape, pos_obs))
+        # print((neg_actions.shape, neg_rewards.shape, neg_obs))
+
+        print(f"PRe: {pos_actions.shape}")
+
+        if pos_actions.ndim == 2:
+            pos_actions = pos_actions.unsqueeze(0)
+        if pos_rewards.ndim == 2:
+            pos_rewards = pos_rewards.unsqueeze(0)
+
+        if neg_actions.ndim == 2:
+            neg_actions = neg_actions.unsqueeze(0)
+        if neg_rewards.ndim == 2:
+            neg_rewards = neg_rewards.unsqueeze(0)
+
+        print(f'P: {pos_actions.shape}, {pos_rewards.shape}')
+
+        
         # combine reward and action and previous states for context network.
         pos_act_rew_obs  = [pos_actions, pos_rewards, pos_obs]
         neg_act_rew_obs  = [neg_actions, neg_rewards, neg_obs]
@@ -255,8 +314,10 @@ class MQL:
         ######
         # Train logistic classifiers 
         ######
-        x = np.concatenate((snap_ctxt, neg_ctxt)) # [b1 + b2] X D
+        x = np.concatenate((snap_ctxt, neg_ctxt)).squeeze(1) # [b1 + b2] X D
+        print(x.shape)
         y = np.concatenate((-np.ones(snap_ctxt.shape[0]), np.ones(neg_ctxt.shape[0])))
+        print(y.shape)
 
         # model params : [1 , D] wehere D is context_hidden
         model = logistic(solver='lbfgs', max_iter = self.max_iter_logistic, C = self.lam_csc).fit(x,y)
@@ -314,8 +375,12 @@ class MQL:
             else:
                 ctxt = self.get_context_feats(curr_pre_act_rew).cpu().data.numpy()
 
+        print(f"CONTEXT SIZE: {ctxt.shape}")
+
         # step 0: get f(x)
         f_prop = np.dot(ctxt, cs_model.coef_.T) + cs_model.intercept_
+
+        print(f"F PROP: {f_prop.shape}")
 
         # step 1: convert to torch
         f_prop = torch.from_numpy(f_prop).float()
@@ -329,7 +394,10 @@ class MQL:
         # β_raw  =  exp(-f(x))   (Eq.11 in the paper)
         beta_raw = torch.exp(-f_prop)               # (B,1)
 
+        print(f"BETA RAW SIZE {beta_raw.shape}")
+
         if self.adaptive_beta_clip:
+            print('ABCing')
             # update running mean & var with EMA
             batch_mean = beta_raw.mean()
             batch_var  = beta_raw.var(unbiased=False)
@@ -350,13 +418,11 @@ class MQL:
 
         f_score = beta_clipped               
 
-
         f_score[f_score < 0.1]  = 0 # for numerical stability
-
+        ctxt_flat = ctxt.reshape(-1, ctxt.shape[-1])
         if self.use_normalized_beta == True:
-
             #get logistic regression prediction of class [-1] for current task
-            lr_prob = cs_model.predict_proba(ctxt)[:,0]
+            lr_prob = cs_model.predict_proba(ctxt_flat)[:,0]
             # normalize using logistic_probs
             d_pmax_pmin = np.float32(np.max(lr_prob) - np.min(lr_prob))
             f_score = ( d_pmax_pmin * (f_score - torch.min(f_score)) )/( torch.max(f_score) - torch.min(f_score) + self.r_eps ) + np.float32(np.min(lr_prob))
@@ -364,7 +430,6 @@ class MQL:
         # update prox coeff with ess.
         if self.use_ess_clipping == True:
             self.update_prox_w_ess_factor(cs_model, ctxt, beta=f_score)
-
 
         return f_score, None
 
@@ -388,24 +453,32 @@ class MQL:
         list_prox_coefs = [self.prox_coef]
 
         for it in range(iterations):
+            sampled_data = replay_buffer.sample(self.batch_size)
 
-            ########
-            # Sample replay buffer 
-            ########
-            if len(src_task_ids) > 0:
-                x, y, u, r, d, pu, pr, px, nu, nr, nx = replay_buffer.sample_tasks(task_ids = src_task_ids, batch_size = current_batch_size)
+            x = sampled_data.observations          # Dict of tensors
+            y = sampled_data.next_observations     # Dict of tensors
+            u = sampled_data.actions               # Tensor
+            r = sampled_data.rewards               # Tensor
+            d = sampled_data.dones                 # Tensor
 
-            else:
-                x, y, u, r, d, pu, pr, px, nu, nr, nx = replay_buffer.sample(current_batch_size)
+            # Extract custom fields that were added manually in GigaBuffer.sample()
+            pu = sampled_data.prev_actions                  # Previous actions
+            pr = sampled_data.prev_rewards                  # Previous rewards
+            px = sampled_data.prev_obs                      # Dict of previous obs
 
-            obs = torch.tensor(x, dtype=torch.float32, device=self.device)
-            next_obs = torch.tensor(y, dtype=torch.float32, device=self.device)
+            nu = sampled_data.historical_actions            # Shape: (batch, H, action_dim)
+            nr = sampled_data.historical_rewards            # Shape: (batch, H)
+            nx = sampled_data.historical_obs                # Dict of tensors: (batch, H, obs_dim)
+
+            
+            obs = {k: v.to(self.device) for k, v in x.items()}
+            next_obs = {k:v.to(self.device) for k, v in y.items()}
             action = torch.tensor(u, dtype=torch.float32, device=self.device)
             reward = torch.tensor(r, dtype=torch.float32, device=self.device)
             mask = torch.tensor(1 - d, dtype=torch.float32, device=self.device)
             previous_action = torch.tensor(pu, dtype=torch.float32, device=self.device)
             previous_reward = torch.tensor(pr, dtype=torch.float32, device=self.device)
-            previous_obs = torch.tensor(px, dtype=torch.float32, device=self.device)
+            previous_obs = {k: v.to(self.device) for k, v in x.items()}
 
 
             # list of hist_actions and hist_rewards which are one time ahead of previous_ones
@@ -414,12 +487,11 @@ class MQL:
             # hist_actions    = [t-2, t-1, t]
             hist_actions = torch.tensor(nu, dtype=torch.float32, device=self.device)
             hist_rewards = torch.tensor(nr, dtype=torch.float32, device=self.device)
-            hist_obs     = torch.tensor(nx, dtype=torch.float32, device=self.device)
-
-
+            hist_obs = {k: torch.tensor(v, dtype=torch.float32, device=self.device) for k, v in nx.items()}
             # combine reward and action
             act_rew = [hist_actions, hist_rewards, hist_obs] # torch.cat([action, reward], dim = -1)
             pre_act_rew = [previous_action, previous_reward, previous_obs] #torch.cat([previous_action, previous_reward], dim = -1)
+            print(f'PRE ACT: {pre_act_rew[0].shape}, {pre_act_rew[1].shape}')
             ctxt_feats = self.get_context_feats(pre_act_rew)
 
             if csc_model is None:
@@ -430,7 +502,7 @@ class MQL:
             else:
                 # propensity_scores dim is batch_size 
                 beta_score, clipping_factor = self.get_propensity(csc_model, pre_act_rew, obs)
-                beta_score = beta_score.to(self.device)
+                beta_score = beta_score[-1].to(self.device)
                 list_prox_coefs.append(self.prox_coef)
 
             ########
@@ -477,7 +549,7 @@ class MQL:
 
             # 4. Optimize the critic
             self.critic_optimizer.zero_grad()
-            critic_loss.backward()
+            critic_loss.backward(retain_graph=True)
             self.critic_optimizer.step()
 
             ########
@@ -498,7 +570,7 @@ class MQL:
 
                 # Optimize the actor 
                 self.actor_optimizer.zero_grad()
-                actor_loss.backward()
+                actor_loss.backward(retain_graph=True)
                 self.actor_optimizer.step()
 
 
@@ -610,18 +682,18 @@ class MQL:
             ########
             noise = (torch.randn_like(action) * self.policy_noise ).clamp(-self.noise_clip, self.noise_clip)
 
-            print("Type of action:", type(action))
-            print("Type of noise:", type(noise))
-            print("Type of next_obs:", type(next_obs))
-            print("Type of ctxt_feats:", type(ctxt_feats))
+            # print("Type of action:", type(action))
+            # print("Type of noise:", type(noise))
+            # print("Type of next_obs:", type(next_obs))
+            # print("Type of ctxt_feats:", type(ctxt_feats))
 
-            print(type(self.actor_target(next_obs, ctxt_feats)))
+            # print(type(self.actor_target(next_obs, ctxt_feats)))
 
             # Call the actor_target model
             next_action = (self.actor_target(next_obs, ctxt_feats) + noise).clamp(-self.max_action, self.max_action)
 
             # Type of the result
-            print("Type of next_action:", type(next_action))
+            # print("Type of next_action:", type(next_action))
             ########
             #  Update critics
             #  1. Compute the target Q value
@@ -646,7 +718,7 @@ class MQL:
 
             # 4. Optimize the critic
             self.critic_optimizer.zero_grad()
-            critic_loss.backward()
+            critic_loss.backward(retain_graph=True)
             self.critic_optimizer.step()
 
             ########
@@ -662,7 +734,7 @@ class MQL:
 
                 # Optimize the actor
                 self.actor_optimizer.zero_grad()
-                actor_loss.backward()
+                actor_loss.backward(retain_graph=True)
                 self.actor_optimizer.step()
 
                 # Update the frozen target models
@@ -714,11 +786,11 @@ class MQL:
                                             adaptation_step = True)
 
         # train td3 for a single task
-        out_single = self.do_training(replay_buffer = eval_task_buffer.get_buffer(task_id),
+        out_single = self.do_training(replay_buffer = eval_task_buffer[task_id],
                                       iterations = snap_iter_nums,
-                                      csc_model = None,
+                                      csc_model = csc_model,
                                       apply_prox = False,
-                                      current_batch_size = eval_task_buffer.size_rb(task_id))
+                                      current_batch_size = 512)
         #self.copy_model_params()
 
         # keep a copy of model params for task task_id

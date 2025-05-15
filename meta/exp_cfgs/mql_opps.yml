@@ -69,7 +69,7 @@ ppo_params:
   device: cpu # actually faster on cpu, for some reason
   learning_rate: 0.0001
   n_steps: 64
-  batch_size: 64
+  batch_size: 8
   n_epochs: 8
   gamma: 0.99
   gae_lambda: 0.95
@@ -81,6 +81,7 @@ ppo_params:
   max_grad_norm: 0.5
   use_sde: False
   sde_sample_freq: -1
+  adaptive_beta_clip: True
 
 train_params:
   total_timesteps: 3_000_000
@@ -88,7 +89,8 @@ train_params:
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
-  iterations: 500
+  iterations_pre: 16
+  iterations_adapt: 2
 
 
 log:

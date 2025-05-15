@@ -14,6 +14,7 @@ from GigaBuffer import GigaBuffer
 from collections import defaultdict
 import time
 import wandb
+import copy
 
 from utils import cfg_from_yaml
 import argparse
@@ -163,12 +164,20 @@ class ActorNetwork(nn.Module):
             nn.Tanh(), 
         )
 
-    def forward(self, observations: dict, context_feats: torch.Tensor) -> torch.Tensor:
+    def forward(self, observations: dict, context_feats: torch.Tensor, dont_squeeze=False) -> torch.Tensor:
         # Process each observation type
-        heading_embed = self.heading_mlp(observations['heading'].squeeze(1))
-        pose_embed = self.pose_mlp(observations['pose'].squeeze(1))
-        scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
-        vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
+        heading_embed, pose_embed, scan_embed, vel_embed = None, None, None, None
+        if dont_squeeze:
+            heading_embed = self.heading_mlp(observations['heading'])
+            pose_embed = self.pose_mlp(observations['pose'])
+            scan_embed = self.scan_mlp(observations['scan'])
+            vel_embed = self.vel_mlp(observations['vel'])
+        else:
+            heading_embed = self.heading_mlp(observations['heading'].squeeze(1))
+            pose_embed = self.pose_mlp(observations['pose'].squeeze(1))
+            scan_embed = self.scan_mlp(observations['scan'].squeeze(1))
+            vel_embed = self.vel_mlp(observations['vel'].squeeze(1))
+
 
         joint = torch.cat((heading_embed, pose_embed, scan_embed, vel_embed, context_feats[-1]), dim=1)
         return self.action_layer(joint)
@@ -268,24 +277,38 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
     # print("Observation Space:", env.observation_space)
     # for key, space in env.observation_space.spaces.items():
     #    print(f"Key: {key}, Space: {space}, Dtype: {getattr(space, 'dtype', None)}")
+    # print(train_args)
 
-    # training loopno
-
-    print(train_args)
-
-    iterations = train_args.get('iterations')
+    iterations_pre = train_args.get('iterations_pre')
+    iterations_adapt = train_args.get('iterations_adapt')
 
     task_buffers = defaultdict(lambda: GigaBuffer(
-    buffer_size=1024,
+    buffer_size=512, 
     observation_space=env.observation_space,
     action_space=env.action_space,
     device=mql_args.get('device', 'cpu'),
     handle_timeout_termination=False,
     ))
 
-    for it in range(iterations):
-        
-        obs, opp_vmax = env.reset() # Is this workable? 
+    for key in np.arange(2.5, 6.5, 0.5):
+        task_buffers[key]
+
+    replay_buffer = GigaBuffer(
+    buffer_size=512, 
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=mql_args.get('device', 'cpu'),
+    handle_timeout_termination=False,)
+
+    ######### META PRE-TRAINING ##########
+
+    print("PRE-TRAINING")
+
+    for _ in range(iterations_pre):
+        env._options[0] = {"isPreTraining": True}
+        obs = env.reset()
+        task_id = env.reset_infos[0].get('opp_vmax')
+        # print(task_id)
         done = False
 
 
@@ -293,9 +316,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
         previous_reward = 0.0
         previous_obs = obs
 
-        H = 10  # History window size
-
-        # Initialize historical buffers as zero tensors
+        H = 10
         historical_actions = np.zeros((H, *env.action_space.shape), dtype=np.float32)
         historical_rewards = np.zeros((H,), dtype=np.float32)
         historical_observations = {
@@ -303,9 +324,7 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
             for key, value in obs.items()
         }
 
-        # Profile the inner loop duration
         while not done:
-            # Convert observations to tensors
             obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
 
             hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
@@ -334,6 +353,19 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 infos=None
             )
 
+            task_buffers[task_id].add(obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None)
+
             # Update previous values
             previous_action = action
             previous_reward = reward
@@ -350,21 +382,156 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
                 historical_observations[key][-1] = obs[key]
 
 
-            train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 20))
-            adapt_out, adapt_single = mql.adapt(
-                train_replay_buffer=replay_buffer,
-                train_tasks_buffer=None,        # optional for now
-                eval_task_buffer=replay_buffer,  # use same buffer as eval
-                task_id=None,                   # not needed here
-                snap_iter_nums=5,
-                main_snap_iter_nums=15
-            )
+            train_metrics = mql.train(replay_buffer=replay_buffer, iterations=train_args.get('train_steps', 5))
 
         if run:
             wandb.log({
                 'critic_loss': train_metrics[0]['critic_loss'],
                 'actor_loss': train_metrics[0]['actor_loss']
             })
+
+    ###### NEW ADAPT :) ######
+
+    ## before proceeding, deepcopy the buffers for abc training.
+
+    replay_buffer_abc = copy.deepcopy(replay_buffer)
+
+    task_buffers_abc = defaultdict(lambda: GigaBuffer(
+        buffer_size=512,
+        observation_space=env.observation_space,
+        action_space=env.action_space,
+        device=mql_args.get('device', 'cpu'),
+        handle_timeout_termination=False,
+    ))
+
+    for task_id, buf in task_buffers.items():
+        task_buffers_abc[task_id] = copy.deepcopy(buf)
+
+    mql.save_model_states()
+    print("ADAPT")
+
+    data_gather_idx = 0
+
+    eval_task_buffers = defaultdict(lambda: GigaBuffer(
+    buffer_size=512,
+    observation_space=env.observation_space,
+    action_space=env.action_space,
+    device=mql_args.get('device', 'cpu'),
+    handle_timeout_termination=False,
+    ))
+
+    adapt_it = 0
+    adapt_metrics = None
+    while adapt_it < iterations_adapt:
+        env._options[0] = {"isPreTraining": False}
+        obs = env.reset()
+        task_id = env.reset_infos[0].get('opp_vmax')
+        # print(task_id)
+        done = False
+
+        if task_id not in eval_task_buffers:
+            eval_task_buffers[task_id] = GigaBuffer(
+        buffer_size=512,
+        observation_space=env.observation_space,
+        action_space=env.action_space,
+        device=mql_args.get('device', 'cpu'),
+        handle_timeout_termination=False,)
+
+
+        previous_action = np.zeros_like(env.action_space.sample())  # Initialize with zeros
+        previous_reward = 0.0
+        previous_obs = obs
+
+        H = 10
+        historical_actions = np.zeros((H, *env.action_space.shape), dtype=np.float32)
+        historical_rewards = np.zeros((H,), dtype=np.float32)
+        historical_observations = {
+            key: np.zeros((H, *value.shape), dtype=np.float32)
+            for key, value in obs.items()
+        }
+
+        while not done:
+            obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
+
+            hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_obs_tensor = {
+                k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                for k, v in historical_observations.items()
+            }
+            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
+            action = actor(obs_tensor, context_feats).detach().numpy()
+
+            next_obs, reward, done, info = env.step(action)
+
+            replay_buffer.add(
+                obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None
+            )
+
+            eval_task_buffers[task_id].add(obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None)
+
+            # Update previous values
+            previous_action = action
+            previous_reward = reward
+            previous_obs = obs
+
+            historical_actions = np.roll(historical_actions, shift=-1, axis=0)
+            historical_actions[-1] = action
+
+            historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
+            historical_rewards[-1] = reward
+
+            for key in historical_observations:
+                historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
+                historical_observations[key][-1] = obs[key]
+
+            data_gather_idx += 1
+
+        if data_gather_idx > 100:
+            adapt_metrics, _ = mql.adapt(
+                train_replay_buffer=replay_buffer,            
+                train_tasks_buffer=task_buffers,             
+                eval_task_buffer=eval_task_buffers,              
+                task_id=task_id,
+                snap_iter_nums=5,
+                main_snap_iter_nums=15,
+                sampling_style='replay',
+                sample_mult=1
+            )
+            print(adapt_metrics)
+            if run:
+                wandb.log({
+                    'critic_loss': adapt_metrics['critic_loss'],
+                    'actor_loss': adapt_metrics['actor_loss'],
+                    'prox_critic': adapt_metrics['prox_critic'], 
+                    'prox_actor': adapt_metrics['prox_actor'], 
+                    'beta_score': adapt_metrics['beta_score']
+                })
+            adapt_it += 1
+
+        
 
             
     final_model_path = f"models/{log_args['project_name']}/final_model.pth"
@@ -376,6 +543,139 @@ def train_mql(env_args: dict, mql_args: dict, train_args: dict, log_args: dict, 
     }, final_model_path)
 
     print(f"Final model saved to {final_model_path}")
+
+
+    ###### ADAPTIVE BETA CLIP #######
+    mql.adaptive_beta_clip = True
+    mql.rollback()
+
+    print("ADAPT + ABC")
+
+    data_gather_idx = 0
+
+    adapt_it = 0
+    adapt_metrics = None
+    while adapt_it < iterations_adapt:
+        env._options[0] = {"isPreTraining": False}
+        obs = env.reset()
+        task_id = env.reset_infos[0].get('opp_vmax')
+        # print(task_id)
+        done = False
+
+        if task_id not in eval_task_buffers:
+            eval_task_buffers[task_id] = GigaBuffer(
+        buffer_size=512,
+        observation_space=env.observation_space,
+        action_space=env.action_space,
+        device=mql_args.get('device', 'cpu'),
+        handle_timeout_termination=False,)
+
+
+        previous_action = np.zeros_like(env.action_space.sample())  # Initialize with zeros
+        previous_reward = 0.0
+        previous_obs = obs
+
+        H = 10
+        historical_actions = np.zeros((H, *env.action_space.shape), dtype=np.float32)
+        historical_rewards = np.zeros((H,), dtype=np.float32)
+        historical_observations = {
+            key: np.zeros((H, *value.shape), dtype=np.float32)
+            for key, value in obs.items()
+        }
+
+        while not done:
+            obs_tensor = {key: torch.tensor(value, dtype=torch.float32).to(device) for key, value in obs.items()}
+
+            hist_actions = torch.tensor(historical_actions, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_rewards = torch.tensor(historical_rewards, dtype=torch.float32).unsqueeze(0).to(mql.device)
+            hist_obs_tensor = {
+                k: torch.tensor(v, dtype=torch.float32).unsqueeze(0).to(mql.device)
+                for k, v in historical_observations.items()
+            }
+            context_feats = mql.get_context_feats((hist_actions, hist_rewards, hist_obs_tensor)).to(mql.device)
+            action = actor(obs_tensor, context_feats).detach().numpy()
+
+            next_obs, reward, done, info = env.step(action)
+
+            replay_buffer_abc.add(
+                obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None
+            )
+
+            task_buffers_abc[task_id].add(obs=obs,
+                next_obs=next_obs,
+                action=action,
+                reward=reward,
+                done=done,
+                prev_action=previous_action, 
+                prev_reward=previous_reward,
+                prev_obs=previous_obs,
+                historical_action=historical_actions,
+                historical_reward=historical_rewards,
+                historical_obs=historical_observations,
+                infos=None)
+
+            # Update previous values
+            previous_action = action
+            previous_reward = reward
+            previous_obs = obs
+
+            historical_actions = np.roll(historical_actions, shift=-1, axis=0)
+            historical_actions[-1] = action
+
+            historical_rewards = np.roll(historical_rewards, shift=-1, axis=0)
+            historical_rewards[-1] = reward
+
+            for key in historical_observations:
+                historical_observations[key] = np.roll(historical_observations[key], shift=-1, axis=0)
+                historical_observations[key][-1] = obs[key]
+
+            data_gather_idx += 1
+
+        if data_gather_idx > 100:
+            adapt_metrics, _ = mql.adapt(
+                train_replay_buffer=replay_buffer,            
+                train_tasks_buffer=task_buffers,             
+                eval_task_buffer=eval_task_buffers,              
+                task_id=task_id,
+                snap_iter_nums=5,
+                main_snap_iter_nums=15,
+                sampling_style='replay',
+                sample_mult=1
+            )
+            print(adapt_metrics)
+            if run:
+                wandb.log({
+                    'critic_loss_abc': adapt_metrics['critic_loss'],
+                    'actor_loss_abc': adapt_metrics['actor_loss'],
+                    'prox_critic_abc': adapt_metrics['prox_critic'], 
+                    'prox_actor_abc': adapt_metrics['prox_actor'], 
+                    'beta_score_abc': adapt_metrics['beta_score']
+                })
+            adapt_it += 1
+
+    final_model_path = f"models/{log_args['project_name']}/final_model_abc.pth"
+    os.makedirs(os.path.dirname(final_model_path), exist_ok=True)
+
+    torch.save({
+        'actor': mql.actor.state_dict(),
+        'context_encoder': mql.context_encoder.state_dict()
+    }, final_model_path)
+
+    print(f"Final model saved to {final_model_path}")
+
+
+
 
 
 def main():

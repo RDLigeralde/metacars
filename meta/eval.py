@@ -74,7 +74,7 @@ def evaluate(
     # Set the environment for the model
     model.set_env(env)
     
-    episode_rewards = []
+    total_timestep_rewards = []  
     episode_lengths = []
     overtakes = 0
     crashes = 0
@@ -88,7 +88,8 @@ def evaluate(
         else:
             obs, opp_vmax = env.reset()
 
-        print(opp_vmax)
+        if episode % 20 == 0:
+            print(episode)
 
         episode_steps = 0
         done = False
@@ -119,6 +120,7 @@ def evaluate(
                     has_crashed = True
                 if info.get('custom/reward_terms/overtaking') != 0.0:
                     has_overtaken = True
+                total_reward_this_step = info.get('custom/reward_terms/total_timestep_reward', 0.0)
             done = terminated or truncated
             env.render()
             
@@ -127,6 +129,7 @@ def evaluate(
         if has_crashed:
             crashes += 1
         episode_lengths.append(episode_steps)
+        total_timestep_rewards.append(total_reward_this_step)
         
             
     env.close()
@@ -138,6 +141,11 @@ def evaluate(
     print(f"Episode length: {episode_steps}")
     print(f"All episode lengths so far: {episode_lengths}")
     print(f"Episode Lengths — Mean: {mean_length:.2f}, Std Dev: {std_length:.2f}")
+
+    mean_total_reward = np.mean(total_timestep_rewards)
+    std_total_reward = np.std(total_timestep_rewards)
+
+    print(f"Total Timestep Reward (last step) — Mean: {mean_total_reward:.4f}, Std Dev: {std_total_reward:.4f}")
 
 def main():
     parser = argparse.ArgumentParser(description='Evaluate a trained PPO model in F1TENTH environment with multiple opponents')

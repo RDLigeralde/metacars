@@ -14,7 +14,7 @@ from typing import List, Optional
 import argparse
 import time
 import os
-from learn_mql_2 import ActorNetwork
+from learn_mql_opps import ActorNetwork
 import csv
 
 def evaluate(
@@ -27,7 +27,7 @@ def evaluate(
     deterministic: bool = True,
     verbose: bool = True,
     norm_path: Optional[str] = None,
-    MAX_EPISODE_LENGTH: int = 1000
+    MAX_EPISODE_LENGTH: int = 500
 ):
     """Logs per-episode metrics over n_episodes and writes to a CSV file."""
     env_args, ppo_args, _, log_args, opp_args = cfg_from_yaml(config_path)
@@ -126,7 +126,15 @@ def evaluate(
         if verbose:
             print(f"Evaluating {model_path} for {n_episodes} episodes...")
 
+        
+        total_timestep_rewards = []  
+        episode_lengths = []
+        overtakes = 0
+        crashes = 0
+
         for episode in range(n_episodes):
+            has_overtaken = False
+            has_crashed = False
             obs = env.reset() if use_vecnorm else env.reset()[0]
             episode_reward = 0
             episode_steps = 0
@@ -163,10 +171,17 @@ def evaluate(
                     for k, v in historical_observations.items()
                 }
 
+                print(hist_actions.shape)
+
+                print(hist_rewards.shape)
+
+                for k, v in hist_obs_tensor.items():
+                    print((k, v.shape))
+
                 if recurrent:
                     action, lstm_states = actor.predict(obs, deterministic=deterministic, state=lstm_states)
                 else:
-                    action = actor.forward(obs, context_feats=get_context_feats_eval((hist_actions, hist_rewards, hist_obs_tensor), context_encoder))
+                    action = actor.forward(obs_tensor, context_feats=get_context_feats_eval((hist_actions, hist_rewards, hist_obs_tensor), context_encoder), dont_squeeze=True)
 
                 if use_vecnorm:
                     obs, reward, terminated, info = env.step(action)
@@ -174,31 +189,39 @@ def evaluate(
                 else:
                     obs, reward, terminated, truncated, info = env.step(action)
                 done = terminated or truncated
-                episode_reward += reward
                 episode_steps += 1
 
-                if "laptime" in info:
-                    laptime_list.append(info["laptime"])
-                if "overtakes" in info:
-                    overtake_count += info["overtakes"]
-                if "laps" in info:
-                    laps = max(laps, info["laps"])
+                
+                if info.get('custom/reward_terms/collision') != 0.0:
+                    has_crashed = True
+                if info.get('custom/reward_terms/overtaking') != 0.0:
+                    has_overtaken = True
+                total_reward_this_step = info.get('custom/reward_terms/total_timestep_reward', 0.0)
+            done = terminated or truncated
+            env.render()
+            
+            if has_overtaken:
+                overtakes += 1
+            if has_crashed:
+                crashes += 1
+            episode_lengths.append(episode_steps)
+            total_timestep_rewards.append(total_reward_this_step)
 
-                if render:
-                    env.render()
+        mean_length = np.mean(episode_lengths)
+        std_length = np.std(episode_lengths)
 
-            end_time = time.time()
-            duration = round(end_time - start_time, 2)
-            failed = int(info.get("crashed", False) or (episode_steps >= MAX_EPISODE_LENGTH))
+        print(f"Overtakes completed: {overtakes}")
+        print(f"Crashes: {crashes}")
+        print(f"Episode length: {episode_steps}")
+        print(f"All episode lengths so far: {episode_lengths}")
+        print(f"Episode Lengths — Mean: {mean_length:.2f}, Std Dev: {std_length:.2f}")
 
-            # Save to CSV
-            writer.writerow([
-                episode + 1, round(float(episode_reward), 2), episode_steps,
-                duration, laps, failed, laptime_list, overtake_count
-            ])
+        mean_total_reward = np.mean(total_timestep_rewards)
+        std_total_reward = np.std(total_timestep_rewards)
 
-            if verbose:
-                print(f"Episode {episode + 1}: reward={episode_reward:.2f}, length={episode_steps}, duration={duration}s, laps={laps}, failures={failed}")
+        print(f"Total Timestep Reward (last step) — Mean: {mean_total_reward:.4f}, Std Dev: {std_total_reward:.4f}")
+
+          
 
     env.close()
     print(f"Evaluation complete. Results saved to {log_file}")
