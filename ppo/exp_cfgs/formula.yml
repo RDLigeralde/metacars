@@ -3,7 +3,7 @@ world:
   map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 8 # set -1 to use number of cpu cores
+    count: 4 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
@@ -13,14 +13,14 @@ world:
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
-  normalize_input: True
+  normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
 
 car:
   # dr_param_ex:
   #  min: x
   #  max: y
-  mu: 0.8
+  mu: 1.0
   C_Sf: 4.718
   C_Sr: 5.4562
   width: 0.31
@@ -29,8 +29,8 @@ car:
   I: 0.04712
   h: 0.074
   v_min: -4.0
-  v_max: 4.0
-  a_max: 6.34
+  v_max: 8.0
+  a_max: 9.51
   s_min: -0.4189
   s_max: 0.4189
   v_switch: 7.319
@@ -44,12 +44,12 @@ ppo_params:
   learning_rate: 0.0001
   n_steps: 2048
   batch_size: 64
-  n_epochs: 8
+  n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.15
+  clip_range: 0.2
   clip_range_vf: null
-  normalize_advantage: True
+  normalize_advantage: False
   ent_coef: 0.0
   vf_coef: 0.5
   max_grad_norm: 0.5
@@ -57,13 +57,13 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 2_500_000
+  total_timesteps: 5_000_000
   save_interval: 500_000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
   progress_bar: False
 
 log:
-  log_tensorboard: False
+  log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: null
+  run_name: formula1_v0

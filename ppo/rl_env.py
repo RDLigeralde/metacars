@@ -1,25 +1,14 @@
 from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory, find_track_dir
-from scipy.interpolate import CubicSpline
-# from f1tenth_gym.envsutils import find_track_dir
 from f1tenth_gym.envs.rendering import make_renderer
+from scipy.interpolate import CubicSpline
 from f1tenth_gym.envs import F110Env
+
 import gymnasium as gym
 import numpy as np
 
-
-from typing import List
-import os
 import cv2
-import time
+import os
 
-class OpponentDriver:
-    def __init__(self, **kwargs):
-        """Wrapper class for opponent policies"""
-        pass
-
-    def drive(self, obs):
-        """Drive the car: implemented in subclasses"""
-        return np.zeros(2)
 
 class F110EnvLegacy(F110Env):
     def __init__(
@@ -88,7 +77,6 @@ class F110EnvLegacy(F110Env):
         self.n_laps = 0
         self.last_checkpoint_time = 0.0
 
-
     def _get_yaw_spline(self, raceline_info):
         data = np.zeros((raceline_info.shape[0], 2))
         data[:, 0] = raceline_info[:, 0] # s
@@ -113,14 +101,6 @@ class F110EnvLegacy(F110Env):
 
         masked = svs[mask]
         return CubicSpline(masked[:, 0], masked[:, 1])
-
-        if len(cleaned_values) < 4:
-            print("Warning: Not enough unique points for cubic spline. Using linear interpolation.")
-            from scipy.interpolate import interp1d
-            return interp1d(cleaned_values[:, 0], cleaned_values[:, 1], 
-                            bounds_error=False, fill_value="extrapolate")
-
-        return CubicSpline(cleaned_values[:, 0], cleaned_values[:, 1])
     
     def _sample_dict(self, params: dict):
         """Sample parameters for domain randomization"""
@@ -138,7 +118,8 @@ class F110EnvLegacy(F110Env):
         used to ensure obstacles leave room for ego
         """
         track_dir = find_track_dir(track)
-        centerline_file = os.path.join(track_dir, f"{track}_raceline.csv")
+        track_name = os.path.basename(track)
+        centerline_file = os.path.join(track_dir, f"{track_name}_raceline.csv")
         return np.loadtxt(centerline_file, delimiter=';').astype(np.float32)
     
     def _update_centerline(self, track):
@@ -147,15 +128,14 @@ class F110EnvLegacy(F110Env):
         used to ensure obstacles leave room for ego
         """
         track_dir = find_track_dir(track)
-        centerline_file = os.path.join(track_dir, f"{track}_centerline.csv")
+        track_name = os.path.basename(track)
+        centerline_file = os.path.join(track_dir, f"{track_name}_centerline.csv")
         return np.loadtxt(centerline_file, delimiter=',').astype(np.float32)
 
     def _update_map_from_track(self):
         self.sim.set_map(self.track)
 
-    
-
-    ## NOTE: a lot of these functions are implemented in a way that implicityl assumes 1 agent
+    ## NOTE: a lot of these functions are implemented in a way that implicitly assumes 1 agent
     def step(self, action):
         """
         Step function for the gym env
