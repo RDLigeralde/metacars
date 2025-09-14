@@ -1,15 +1,15 @@
 world:
   seed: 42
-  map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
+  map: /home/roberto/indep/agent2d/agent/tracks/Monza # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 4 # set -1 to use number of cpu cores
+    count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
-  num_beams: 540 # number of lidar beams
+  num_beams: 1080 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    type: frenet_rl # need the nested dict for the observation config
+    type: lidar_conv # need the nested dict for the observation config
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
@@ -37,17 +37,41 @@ car:
   sv_min: -3.2
   sv_max: 3.2
 
+reward_params:
+  vel_action_change_penalty: 0  # -0.5
+  steer_action_change_penalty: -0.05  # -1.0
+  stagnation_penalty: -0.1
+  stagnation_cutoff: 0.02  # delta s as a fraction of total track length
+  velocity_reward_scale: 15.0
+  heading_penalty: -1.0
+  progress_weight: 100
+  crash_curriculum: 100000  # int(1e5)
+  delta_u_curriculum: 1000000  # int(1e6)
+  v_ref_curriculum: 1000000  # int(1e6)
+  milestone_reward: 5
+  decay_interval: 100000  # 1e5
+  max_crash_penalty: 10
+  turn_speed_penalty: 0  # -0.1
+  initial_crash_penalty: -1.0
+  milestone_increment: 0.01
+  initial_milestone: 0.01
+  overtake_reward: 0.0
+
 ppo_params:
+  feature_extractor:
+    type: LidarOdomBlender # null for default or name of BaseFeaturesExtractor subclass
+    args: # args for provided feature extractor
+      num_odom_layers: 0
   init_path: null # if resuming a run
   recurrent: False
-  device: cpu # actually faster on cpu, for some reason
+  device: cuda
   learning_rate: 0.0001
   n_steps: 2048
   batch_size: 64
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
-  clip_range: 0.2
+  clip_range: 0.1
   clip_range_vf: null
   normalize_advantage: False
   ent_coef: 0.0
@@ -57,7 +81,7 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 5_000_000
+  total_timesteps: 10_000_000
   save_interval: 500_000 # set large to only save last policy
   log_interval: 1
   reset_num_timesteps: False
@@ -66,4 +90,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: formula1_v0
+  run_name: convula1

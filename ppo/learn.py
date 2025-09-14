@@ -1,14 +1,17 @@
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecNormalize
+from stable_baselines3.common.callbacks import EvalCallback, CallbackList
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
-from rl_env import F110EnvLegacy
+
 
 from sb3_contrib import RecurrentPPO
+from archs import LidarOdomBlender
 from stable_baselines3 import PPO
 import gymnasium as gym
 import wandb
 
 from utils import get_cfg_dicts, CustomWandbCallback
+
 import argparse
 import os
 
@@ -21,7 +24,7 @@ def train(
     run_name: str,
 ):
     # Register the custom environment first
-    # not sure why __init__.py is not being called
+    # not sure why __init__.py is not donig this for us
     gym.register(
         id="f1tenth-v0-legacy",
         entry_point="rl_env:F110EnvLegacy",
@@ -40,7 +43,7 @@ def train(
             }
         )
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
-        callback = CustomWandbCallback(
+        wandb_callback = CustomWandbCallback(
             gradient_save_freq=0, 
             model_save_path=f"models/{yml_name}/{run_name}", 
             model_save_freq=model_save_freq,
@@ -48,7 +51,7 @@ def train(
         )
     else:
         run = None
-        callback = None
+        wandb_callback = None
 
     tensorboard_log = f"runs/{yml_name}" if log_args.pop('log_tensorboard') else None
     render_mode = env_args.pop('render_mode')
@@ -66,18 +69,25 @@ def train(
     
     recurrent = ppo_args.pop('recurrent')
     vec_args = env_args.pop('num_envs')
+    extractor_args = ppo_args.pop('feature_extractor')
     num_envs, env_type = vec_args['count'], vec_args['type']
 
     ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
-    #norm_obs, norm_rew = env_args.pop('normalize_observations'), env_args.pop('normalize_rewards')
-    norm_obs, norm_rew = False, False
+    if extractor_args['type'] == 'LidarOdomBlender':
+        fe_kwargs = extractor_args['args']
+        fe_kwargs['num_agents'] = env_args['num_agents']
+        policy_kwargs = dict(
+            features_extractor_class=LidarOdomBlender,
+            features_extractor_kwargs=fe_kwargs
+        )
+    else:
+        policy_kwargs = None
+    
     if num_envs == 1:
         env = make_env()
-        if norm_obs or norm_rew:
-            env = DummyVecEnv([lambda: env])
     elif num_envs > 1:
         env = make_vec_env(
             make_env,
@@ -92,14 +102,30 @@ def train(
             vec_env_cls=vec_env_cls
         )
 
-    if norm_obs or norm_rew:
-        env = VecNormalize(
-            env,
-            norm_obs=norm_obs,
-            norm_rew=norm_rew,
-            clip_obs=10.0, # TODO: make this a config option
-            gamma=env_args['gamma'],
-        )
+    eval_env = make_vec_env(
+        make_env,
+        n_envs=1,  # Use single env for evaluation
+        vec_env_cls=DummyVecEnv
+    )
+
+    best_model_save_path = f"models/{yml_name}/{run_name}/best_model"
+    os.makedirs(best_model_save_path, exist_ok=True)
+    eval_callback = EvalCallback(
+        eval_env,
+        best_model_save_path=best_model_save_path,
+        log_path=f"logs/{yml_name}/{run_name}/eval",
+        eval_freq=max(model_save_freq // 4, 1000),  # Evaluate 4 times per save interval, minimum every 1000 steps
+        n_eval_episodes=10,  # Number of episodes to evaluate
+        deterministic=True,
+        render=False,
+        verbose=1
+    )
+
+    # Combine callbacks
+    callbacks = [eval_callback]
+    if wandb_callback:
+        callbacks.append(wandb_callback)
+    callback = CallbackList(callbacks) if len(callbacks) > 1 else callbacks[0]
 
     init_path = ppo_args.pop('init_path')
     if init_path:
@@ -113,6 +139,7 @@ def train(
     else:
         ppo = ppo_type(
             policy=policy,
+            policy_kwargs=policy_kwargs,
             env=env,
             tensorboard_log=tensorboard_log,
             seed=env_args['seed'],
@@ -121,7 +148,7 @@ def train(
         )
     ppo.learn(
         **train_args,
-        callback=callback
+        callback=callback,
     )
 
     if run:
@@ -135,7 +162,7 @@ def main():
     parser.add_argument('--run_name', type=str, help='Name for distinguishing runs')
     args = parser.parse_args()
 
-    env_args, ppo_args, train_args, log_args= get_cfg_dicts(args.config)
+    env_args, ppo_args, train_args, log_args = get_cfg_dicts(args.config)
     yml_name = os.path.basename(args.config)
     train(
         env_args=env_args,

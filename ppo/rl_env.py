@@ -5,6 +5,7 @@ from f1tenth_gym.envs import F110Env
 
 import gymnasium as gym
 import numpy as np
+import torch
 
 import cv2
 import os
@@ -23,9 +24,12 @@ class F110EnvLegacy(F110Env):
         Enabled by setting 'param': {'min': val, 'max': val} in config.yml
         instead of static values
         """
+        super().__init__(config, render_mode, **kwargs)
         self.config_input = config
         self.params_input = config['params']
         self.num_obstacles = config["num_obstacles"]
+        self.reward_params = config.get('reward_params', {})
+        self._init_reward_params()
 
         if os.path.exists(config['map']) and os.path.isdir(config['map']):
             tracks = [d for d in os.listdir(config['map']) if os.path.isdir(os.path.join(config['map'], d))]
@@ -41,24 +45,13 @@ class F110EnvLegacy(F110Env):
 
         config = self._sample_dict(self.config_input)
         config['params'] = self._sample_dict(self.params_input)
-        super().__init__(config, render_mode, **kwargs)
         self.render_mode = render_mode
 
-        if config['normalize_input']:
-            self.action_space = gym.spaces.Box(
-                low=-1.0,
-                high=1.0,
-                shape=(1,2),
-                dtype=np.float32,
-            )
-        self.action_range = np.array([self.params_input['s_max'], self.params_input['v_max']])
-
-        
         self.centerline = self._update_centerline(config['map'])
         raceline = self._update_raceline(config['map'])
         self.vspline = self._get_velocity_spline(raceline)
         self.yaw_spline = self._get_yaw_spline(raceline)
-        self.last_action = np.zeros((self.num_agents, 2))
+        self.last_action = np.zeros(self.num_agents * 2)
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
 
@@ -69,8 +62,6 @@ class F110EnvLegacy(F110Env):
         self.MILESTONE_INCREMEMENT = 0.1
         self.milestone = 0.1 # percentage progress that will trigger a large positive reward
 
-        # print(self.action_space)
-        # for logging
         self.n_timeouts = 0
         self.n_crashes = 0
         self.last_run_progress = 0.0
@@ -135,13 +126,12 @@ class F110EnvLegacy(F110Env):
     def _update_map_from_track(self):
         self.sim.set_map(self.track)
 
-    ## NOTE: a lot of these functions are implemented in a way that implicitly assumes 1 agent
     def step(self, action):
         """
         Step function for the gym env
 
         Args:
-            action (np.ndarray(num_agents, 2))
+            action (num_agents * 2)): steering, velocity for each agent
 
         Returns:
             obs (dict): observation of the current step
@@ -151,11 +141,8 @@ class F110EnvLegacy(F110Env):
         """
 
         # call simulation step
-        if self.config_input['normalize_input']:
-            sim_action = action * self.action_range
-        else:
-            sim_action = action
-        # print(sim_action)
+        sim_action = np.reshape(action, (self.num_agents, 2))
+        sim_action = sim_action * self.action_range
         self.sim.step(sim_action)
 
         # observation
@@ -201,6 +188,7 @@ class F110EnvLegacy(F110Env):
         info.update(reward_info)
 
         return obs, reward, done, truncated, info
+    
     def _sigmoid(self, x):
         """Helper function for smooth transitions"""
         if x < -1e3:
@@ -244,33 +232,33 @@ class F110EnvLegacy(F110Env):
         else:
             return 0.0
 
-    def _get_steering_change_penalty(self, i, action):
+    def _get_steering_change_penalty(self, idxs, action):
         """Calculate penalty for steering action changes"""
         time_increase_factor = self._sigmoid(
             ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
         )
         steer_delta_pen = self.STEER_ACTION_CHANGE_PENALTY * \
-                        np.abs(self.last_action[i, 0] - action[i, 0]) * \
+                        np.abs(self.last_action[...,idxs[0]] - action[...,idxs[0]]) * \
                         time_increase_factor
         return steer_delta_pen
 
-    def _get_velocity_change_penalty(self, i, action):
+    def _get_velocity_change_penalty(self, idxs, action):
         """Calculate penalty for velocity action changes"""
         time_increase_factor = self._sigmoid(
             ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
         )
         vel_delta_pen = self.VEL_ACTION_CHANGE_PENALTY * \
-                        np.abs(self.last_action[i, 1] - action[i, 1]) * \
+                        np.abs(self.last_action[...,idxs[1]] - action[...,idxs[1]]) * \
                         time_increase_factor
         return vel_delta_pen
 
-    def _get_turn_speed_penalty(self, i, action):
+    def _get_turn_speed_penalty(self, idxs, action):
         """Calculate penalty for turning at high speeds"""
         time_increase_factor = self._sigmoid(
             ((self.total_timesteps - self.DELTA_U_CURRICULUM) / self.DECAY_INTERVAL)
         )
         turn_speed_pen = self.TURN_SPEED_PENALTY * \
-                        np.abs((action[i, 0] * action[i, 1])) * \
+                        np.abs((action[...,idxs[0]] ** 2)) * \
                         time_increase_factor
         return turn_speed_pen
 
@@ -282,9 +270,9 @@ class F110EnvLegacy(F110Env):
         else:
             return 0.0
 
-    def _get_stagnation_penalty(self, i, action):
+    def _get_stagnation_penalty(self, idxs, action):
         """Calculate stagnation penalty for low velocity"""
-        if np.abs(action[i, 1]) < 1e-3:
+        if np.abs(action[idxs[1]]) < 1e-3:
             return self.crash_penalty  # Same magnitude as crash penalty
         else:
             return 0.0
@@ -297,7 +285,7 @@ class F110EnvLegacy(F110Env):
     def _get_reward(self, action):
         """
         Get the reward for the current step
-        action - np.array (num_agents, 2)
+        action - np.array (num_agents * 2)
         """
         # Update crash penalty based on curriculum
         self._update_crash_penalty()
@@ -309,20 +297,23 @@ class F110EnvLegacy(F110Env):
         total_reward = 0.0
         reward_info = {}
         
-        for i in range(self.num_agents):
+        for i in range(0, self.num_agents * 2, 2):
             # Get current position on track
+            current_idxs = np.arange(i, i + 2)
+            agent_idx = i // 2
             current_s, _ = self.track.centerline.spline.calc_arclength_inaccurate(
-                self.poses_x[i], self.poses_y[i]
+                self.poses_x[agent_idx], self.poses_y[agent_idx]
             )
             
+            
             # Calculate individual reward components
-            prog_reward, pcnt = self._get_progress_reward(i, current_s)
+            prog_reward, _ = self._get_progress_reward(agent_idx, current_s)
             milestone_reward = self._get_milestone_reward()
-            steer_penalty = self._get_steering_change_penalty(i, action)
-            vel_penalty = self._get_velocity_change_penalty(i, action)
-            turn_speed_penalty = self._get_turn_speed_penalty(i, action)
-            collision_penalty = self._get_collision_penalty(i)
-            stagnation_penalty = self._get_stagnation_penalty(i, action)
+            steer_penalty = self._get_steering_change_penalty(current_idxs, action)
+            vel_penalty = self._get_velocity_change_penalty(current_idxs, action)
+            turn_speed_penalty = self._get_turn_speed_penalty(current_idxs, action)
+            collision_penalty = self._get_collision_penalty(agent_idx)
+            stagnation_penalty = self._get_stagnation_penalty(current_idxs, action)
             
             # Sum all reward components
             agent_reward = (
@@ -334,7 +325,6 @@ class F110EnvLegacy(F110Env):
                 collision_penalty +
                 stagnation_penalty
             )
-
    
             total_reward += agent_reward
             
@@ -349,25 +339,31 @@ class F110EnvLegacy(F110Env):
             reward_info['custom/reward_terms/total_timestep_reward'] = total_reward
             
             # Update state for next iteration
-            self.last_s[i] = current_s
+            self.last_s[agent_idx] = current_s
         
         return total_reward, reward_info
 
-    # Class attribute definitions (constants)
-    VEL_ACTION_CHANGE_PENALTY = 0  # -0.5
-    STEER_ACTION_CHANGE_PENALTY = -0.05  # -1.0
-    STAGNATION_PENALTY = -0.1
-    STAGNATION_CUTOFF = 0.02  # delta s as a fraction of total track length
-    VELOCITY_REWARD_SCALE = 0.0
-    HEADING_PENALTY = -1.0
-    PROGRESS_WEIGHT = 100
-    CRASH_CURRICULUM = int(1e5)
-    DELTA_U_CURRICULUM = int(1e6)
-    V_REF_CURRICULUM = int(1e6)
-    MILESTONE_REWARD = 5
-    DECAY_INTERVAL = 1e5
-    MAX_CRASH_PENALTY = 1
     TURN_SPEED_PENALTY = 0  # -0.1
+
+    def _init_reward_params(self):
+        self.MILESTONE_INCREMENT = self.reward_params.get('milestone_increment')
+        self.milestone = self.reward_params.get('initial_milestone')  # percentage progress that will trigger a large positive reward
+        self.crash_penalty = self.reward_params.get('initial_crash_penalty')
+        self.VEL_ACTION_CHANGE_PENALTY = self.reward_params.get('vel_action_change_penalty')
+        self.STEER_ACTION_CHANGE_PENALTY = self.reward_params.get('steer_action_change_penalty')
+        self.STAGNATION_PENALTY = self.reward_params.get('stagnation_penalty')
+        self.STAGNATION_CUTOFF = self.reward_params.get('stagnation_cutoff')
+        self.VELOCITY_REWARD_SCALE = self.reward_params.get('velocity_reward_scale')
+        self.HEADING_PENALTY = self.reward_params.get('heading_penalty')
+        self.PROGRESS_WEIGHT = self.reward_params.get('progress_weight')
+        self.CRASH_CURRICULUM = self.reward_params.get('crash_curriculum')
+        self.DELTA_U_CURRICULUM = self.reward_params.get('delta_u_curriculum')
+        self.V_REF_CURRICULUM = self.reward_params.get('v_ref_curriculum')
+        self.MILESTONE_REWARD = self.reward_params.get('milestone_reward')
+        self.DECAY_INTERVAL = self.reward_params.get('decay_interval')
+        self.MAX_CRASH_PENALTY = self.reward_params.get('max_crash_penalty')
+        self.TURN_SPEED_PENALTY = self.reward_params.get('turn_speed_penalty')
+        self.OVERTAKE_REWARD = self.reward_params.get('overtake_reward')
 
     def _reset_pos(self, seed=None, options=None):
         '''
@@ -457,7 +453,7 @@ class F110EnvLegacy(F110Env):
         self._spawn_obstacle(self.num_obstacles)
         self._update_map_from_track()
         # get no input observations
-        self.last_action = np.zeros((self.num_agents, 2))
+        self.last_action = np.zeros(self.num_agents * 2)
         obs, _, _, _, info = self.step(self.last_action)
 
         ## updated to support changing maps, create new renederer with most up to date info
