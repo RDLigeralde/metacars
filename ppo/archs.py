@@ -37,7 +37,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
 
         self.odom_mlp = nn.ModuleList()
         if num_odom_layers > 0:
-            self.odom_mlp.append(nn.Linear(8 * num_agents, features_dim)) # odom has 8 features
+            self.odom_mlp.append(nn.Linear(5 * num_agents, features_dim)) # odom has 8 features
             self.odom_mlp.append(nn.ReLU())
             for _ in range(num_odom_layers - 1):
                 self.odom_mlp.append(nn.Linear(features_dim, features_dim))
