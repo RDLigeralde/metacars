@@ -3,10 +3,7 @@ from f1tenth_gym.envs.rendering import make_renderer
 from scipy.interpolate import CubicSpline
 from f1tenth_gym.envs import F110Env
 
-import gymnasium as gym
 import numpy as np
-import torch
-
 import cv2
 import os
 
@@ -23,8 +20,7 @@ class F110EnvLegacy(F110Env):
 
         Enabled by setting 'param': {'min': val, 'max': val} in config.yml
         instead of static values
-        """
-        super().__init__(config, render_mode, **kwargs)
+        """ 
         self.config_input = config
         self.params_input = config['params']
         self.num_obstacles = config["num_obstacles"]
@@ -45,6 +41,7 @@ class F110EnvLegacy(F110Env):
 
         config = self._sample_dict(self.config_input)
         config['params'] = self._sample_dict(self.params_input)
+        super().__init__(config, render_mode, **kwargs)
         self.render_mode = render_mode
 
         self.centerline = self._update_centerline(config['map'])

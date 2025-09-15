@@ -61,9 +61,9 @@ ppo_params:
   feature_extractor:
     type: LidarOdomBlender # null for default or name of BaseFeaturesExtractor subclass
     args: # args for provided feature extractor
-      num_odom_layers: 0
+      num_odom_layers: 1
   init_path: null # if resuming a run
-  recurrent: False
+  recurrent: True
   device: cuda
   learning_rate: 0.0001
   n_steps: 2048
@@ -90,4 +90,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: beamonza
+  run_name: beamonza_odom_recurrent
