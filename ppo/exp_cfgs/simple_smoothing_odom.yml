@@ -6,7 +6,7 @@ world:
     count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
-  num_beams: 270 # number of lidar beams
+  num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config: 
     type: lidar_conv # need the nested dict for the observation config
@@ -38,11 +38,11 @@ car:
   sv_max: 3.2
 
 reward_params:
-  vel_action_change_penalty: 0  # -0.5
+  vel_action_change_penalty: 0.0  # -0.5
   steer_action_change_penalty: -0.05  # -1.0
-  stagnation_penalty: -0.1
-  stagnation_cutoff: 0.02  # delta s as a fraction of total track length
-  velocity_reward_scale: 15.0
+  stagnation_penalty: 0.0
+  stagnation_cutoff: 0.0  # delta s as a fraction of total track length
+  velocity_reward_scale: 0.0
   heading_penalty: -1.0
   progress_weight: 100
   crash_curriculum: 100000  # int(1e5)
@@ -61,13 +61,13 @@ ppo_params:
   feature_extractor:
     type: LidarOdomBlender # null for default or name of BaseFeaturesExtractor subclass
     args: # args for provided feature extractor
-      num_odom_layers: 0
+      num_odom_layers: 1
   init_path: null # if resuming a run
   recurrent: False
   device: cuda
   learning_rate: 0.0001
   n_steps: 2048
-  batch_size: 64
+  batch_size: 2048
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
@@ -90,4 +90,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: beamonza
+  run_name: reward_smoothed_odom_b2048_fixedcurr

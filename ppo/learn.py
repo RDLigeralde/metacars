@@ -24,12 +24,7 @@ def train(
     run_name: str,
 ):
     # Register the custom environment first
-    # not sure why __init__.py is not donig this for us
-    gym.register(
-        id="f1tenth-v0-legacy",
-        entry_point="rl_env:F110EnvLegacy",
-    )
-    
+    # not sure why __init__.py is not donig this for us 
     model_save_freq = train_args.pop('save_interval')
     if log_args['project_name']:
         run = wandb.init(
@@ -59,12 +54,11 @@ def train(
     
     def make_env():
         # Create the environment
-        base = gym.make(
-            'f1tenth-v0-legacy', 
+        spec = gym.spec('f1tenth-v0-legacy')
+        base = spec.make(
             config=env_args, 
             render_mode=render_mode
         )
-        
         return Monitor(base)
     
     recurrent = ppo_args.pop('recurrent')
@@ -74,6 +68,7 @@ def train(
 
     ppo_type = RecurrentPPO if recurrent else PPO # might want to try different learning algorithms later on
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
+    vec_env_kwargs = {} if env_type == 'dummy' else {'start_method': 'fork'}
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
     
     if extractor_args['type'] == 'LidarOdomBlender':
@@ -92,20 +87,23 @@ def train(
         env = make_vec_env(
             make_env,
             n_envs=num_envs,
-            vec_env_cls=vec_env_cls
+            vec_env_cls=vec_env_cls,
+            vec_env_kwargs=vec_env_kwargs
         )
     else:
         num_envs = os.cpu_count()
         env = make_vec_env(
             make_env,
             n_envs=num_envs,
-            vec_env_cls=vec_env_cls
+            vec_env_cls=vec_env_cls,
+            vec_env_kwargs=vec_env_kwargs
         )
 
     eval_env = make_vec_env(
         make_env,
         n_envs=1,  # Use single env for evaluation
-        vec_env_cls=DummyVecEnv
+        vec_env_cls=vec_env_cls,
+        vec_env_kwargs=vec_env_kwargs
     )
 
     best_model_save_path = f"models/{yml_name}/{run_name}/best_model"
@@ -174,4 +172,8 @@ def main():
     )
 
 if __name__ == '__main__':
+    gym.register(
+        id="f1tenth-v0-legacy",
+        entry_point="rl_env:F110EnvLegacy",
+    )
     main()
