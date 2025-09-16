@@ -1,4 +1,3 @@
-from rl_env import F110EnvDR
 import gymnasium as gym
 import numpy as np
 
@@ -32,7 +31,7 @@ def evaluate(
     else:
         render_mode = "none"
     
-    env = gym.make('ppo.rl_env:f1tenth-v0-dr', config=env_args, render_mode=render_mode)
+    env = gym.make('f1tenth-v0-legacy', config=env_args, render_mode=render_mode)
     # env = F110EnvDR(config=env_args, render_mode=render_mode)
     # env = gym.make('f1tenth_gym:f1tenth-v0', config=env_args, render_mode=render_mode)
     if render_mode == "rgb_array":
@@ -152,4 +151,8 @@ def main():
     )
 
 if __name__ == '__main__':
+    gym.register(
+        id="f1tenth-v0-legacy",
+        entry_point="rl_env:F110EnvLegacy",
+    )
     main()
