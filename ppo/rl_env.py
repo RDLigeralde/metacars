@@ -1,5 +1,6 @@
 from f1tenth_gym.envs.track.utils import find_track_dir
 from f1tenth_gym.envs.rendering import make_renderer
+from f1tenth_gym.envs.reset import make_reset_fn
 from scipy.interpolate import CubicSpline
 from f1tenth_gym.envs import F110Env
 
@@ -373,7 +374,6 @@ class F110EnvLegacy(F110Env):
         '''
         if seed is not None:
             np.random.seed(seed=seed)
-        super().reset(seed=seed)
 
         # reset counters and data members
         self.current_time = 0.0
@@ -387,6 +387,9 @@ class F110EnvLegacy(F110Env):
         self.last_checkpoint_time = 0.0
 
         # states after reset
+        self.reset_fn = make_reset_fn( # reset fn is tied to track
+            **self.config["reset_config"], track=self.track, num_agents=self.num_agents
+        )
         if options is not None and "poses" in options:
             poses = options["poses"]
         else:
@@ -440,22 +443,12 @@ class F110EnvLegacy(F110Env):
 
         
         if self.use_trackgen:
+            print(f"Using track: {config['map']}")
             self.update_map(config['map'])
+            self._update_map_from_track()
             self.centerline = self._update_centerline(config['map'])
             self.raceline = self._update_raceline(config['map'])
 
-        # update laps from last trial
-        self.n_laps += int(self.total_prog)
-        self._reset_pos(seed=seed, options=options)
-
-        # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
-        self.update_map(config['map'])
-        self._update_map_from_track()
-        # get no input observations
-        self.last_action = np.zeros(self.num_agents * 2)
-        obs, _, _, _, info = self.step(self.last_action)
-
-        ## updated to support changing maps, create new renederer with most up to date info
         self.renderer, self.render_spec = make_renderer(
             params=self.params,
             track=self.track,
@@ -463,7 +456,76 @@ class F110EnvLegacy(F110Env):
             render_mode=self.render_mode,
             render_fps=self.metadata["render_fps"],
         )
+        self.last_action = np.zeros(self.num_agents * 2)
+        self._reset_pos(seed=seed, options=options)
+        obs, *_, info = self.step(np.zeros(self.num_agents * 2))  # take an initial step to get obs
         return obs, info
+    
+    def _reset_pos(self, seed=None, options=None):
+        '''
+        Resets the pose (position and orientation) of the car. To be called in reset() and
+        copied over from the base F110Env to handle the few cases where obstacles spawn on top 
+        of the car due to the fact that super.reset() was previously being called AFTER we spawned
+        obtacles
+        '''
+        if seed is not None:
+            np.random.seed(seed=seed)
+
+        # reset counters and data members
+        self.current_time = 0.0
+        self.collisions = np.zeros((self.num_agents,))
+        self.num_toggles = 0
+        self.near_start = True
+        self.near_starts = np.array([True] * self.num_agents)
+        self.toggle_list = np.zeros((self.num_agents,))
+        self.total_prog = 0.0
+        self.milestone = self.MILESTONE_INCREMEMENT
+        self.last_checkpoint_time = 0.0
+
+        # states after reset
+        self.reset_fn = make_reset_fn( # reset fn is tied to track
+            **self.config["reset_config"], track=self.track, num_agents=self.num_agents
+        )
+        if options is not None and "poses" in options:
+            poses = options["poses"]
+        else:
+            poses = self.reset_fn.sample()
+
+        assert isinstance(poses, np.ndarray) and poses.shape == (
+            self.num_agents,
+            3,
+        ), "Initial poses must be a numpy array of shape (num_agents, 3)"
+
+        self.start_xs = poses[:, 0]
+        self.start_ys = poses[:, 1]
+        self.start_thetas = poses[:, 2]
+        self.start_rot = np.array(
+            [
+                [
+                    np.cos(-self.start_thetas[self.ego_idx]),
+                    -np.sin(-self.start_thetas[self.ego_idx]),
+                ],
+                [
+                    np.sin(-self.start_thetas[self.ego_idx]),
+                    np.cos(-self.start_thetas[self.ego_idx]),
+                ],
+            ]
+        )
+
+        # call reset to simulator
+        self.sim.reset(poses)
+
+        self.poses_x = self.start_xs
+        self.poses_y = self.start_ys
+
+         ## make sure to recalculate track position
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        for i in range(self.num_agents):
+            self.last_s[i], _ = self.track.centerline.spline.calc_arclength_inaccurate(
+                    self.poses_x[i], self.poses_y[i]
+                )
+
 
     def _check_done(self):
         """
