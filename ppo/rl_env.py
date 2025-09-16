@@ -1,10 +1,9 @@
-from f1tenth_gym.envs.track.utils import nearest_point_on_trajectory, find_track_dir
+from f1tenth_gym.envs.track.utils import find_track_dir
 from f1tenth_gym.envs.rendering import make_renderer
 from scipy.interpolate import CubicSpline
 from f1tenth_gym.envs import F110Env
 
 import numpy as np
-import cv2
 import os
 
 
@@ -45,9 +44,9 @@ class F110EnvLegacy(F110Env):
         self.render_mode = render_mode
 
         self.centerline = self._update_centerline(config['map'])
-        raceline = self._update_raceline(config['map'])
-        self.vspline = self._get_velocity_spline(raceline)
-        self.yaw_spline = self._get_yaw_spline(raceline)
+        self.raceline = self._update_raceline(config['map'])
+        self.vspline = self._get_velocity_spline(self.raceline)
+        self.yaw_spline = self._get_yaw_spline(self.raceline)
         self.last_action = np.zeros(self.num_agents * 2)
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
@@ -290,7 +289,9 @@ class F110EnvLegacy(F110Env):
         # Initialize tracking variables if needed
         if not hasattr(self, "last_s"):
             self.last_s = [0.0] * self.num_agents
-        
+
+        # Determine reference line for progress calculation
+        self.refline = self.track.centerline if self.refline_type == 'centerline' else self.track.raceline
         total_reward = 0.0
         reward_info = {}
         
@@ -298,10 +299,9 @@ class F110EnvLegacy(F110Env):
             # Get current position on track
             current_idxs = np.arange(i, i + 2)
             agent_idx = i // 2
-            current_s, _ = self.track.centerline.spline.calc_arclength_inaccurate(
+            current_s, _ = self.refline.spline.calc_arclength_inaccurate(
                 self.poses_x[agent_idx], self.poses_y[agent_idx]
             )
-            
             
             # Calculate individual reward components
             prog_reward, _ = self._get_progress_reward(agent_idx, current_s)
@@ -321,7 +321,7 @@ class F110EnvLegacy(F110Env):
                 turn_speed_penalty +
                 collision_penalty +
                 stagnation_penalty
-            )
+            ) + self.existence_penalty
    
             total_reward += agent_reward
             
@@ -361,6 +361,8 @@ class F110EnvLegacy(F110Env):
         self.MAX_CRASH_PENALTY = self.reward_params.get('max_crash_penalty')
         self.TURN_SPEED_PENALTY = self.reward_params.get('turn_speed_penalty')
         self.OVERTAKE_REWARD = self.reward_params.get('overtake_reward')
+        self.refline_type = self.reward_params.get('refline_type')
+        self.existence_penalty = self.reward_params.get('existence_penalty', 0.0)
 
     def _reset_pos(self, seed=None, options=None):
         '''
@@ -440,6 +442,7 @@ class F110EnvLegacy(F110Env):
         if self.use_trackgen:
             self.update_map(config['map'])
             self.centerline = self._update_centerline(config['map'])
+            self.raceline = self._update_raceline(config['map'])
 
         # update laps from last trial
         self.n_laps += int(self.total_prog)
@@ -447,7 +450,6 @@ class F110EnvLegacy(F110Env):
 
         # regenerate the map to the original without obstacles anyways to ensure that obstacles don't clutter over time
         self.update_map(config['map'])
-        self._spawn_obstacle(self.num_obstacles)
         self._update_map_from_track()
         # get no input observations
         self.last_action = np.zeros(self.num_agents * 2)
@@ -463,82 +465,6 @@ class F110EnvLegacy(F110Env):
         )
         return obs, info
 
-    def _spawn_obstacle(
-        self, 
-        n_obs,
-        obs_room = 30,
-        room=30, 
-        r_min=0.15,
-        r_max=0.3,
-        margin=0.6,
-    ):
-        """
-        spawns a random box on track room away from ego
-        only draws circles for now, with low lidar resolution should be fine
-
-        Args:
-            obs_room: minimum number of indices separating the sampled centerline points for the obstacles
-            room (int): minimum distance in indices from ego to spawn location 
-            r_min (float): minimum obstacle size
-            margin (float): how much track width to leave on either side of the circle
-        """
-        ego_x, ego_y = self.start_xs[self.ego_idx], self.start_ys[self.ego_idx] #, self.poses_yaw[self.ego_idx]
-        pt = np.array([ego_x, ego_y])
-        _, _, _, n_idx = nearest_point_on_trajectory(pt.astype(np.float64), self.centerline[:, :2].astype(np.float64))
-
-        # deletes indices in B_r(pt) from selection pool
-        # TODO: idk if these checks are necessary,
-        # agent reset might account for updated occupancy map
-        # track.centerline.
-        curr = self.track.occupancy_map
-        idxs = np.arange(len(self.centerline))
-        remove_window = np.arange(n_idx - room, n_idx + room + 1)
-        remove_window[remove_window < 0] += self.centerline.shape[0]
-        remove_window[remove_window > self.centerline.shape[0]] -= self.centerline.shape[0]
-        idxs = np.setdiff1d(idxs, remove_window)
-        for i in range(n_obs):
-
-            # randomly select (s, ey) from remaining indices
-            rand_idx = np.random.choice(idxs)
-
-            # exclude next ones in next iteration
-            remove_window = np.arange(rand_idx - obs_room, rand_idx + obs_room + 1)
-            remove_window[remove_window < 0] += self.centerline.shape[0]
-            remove_window[remove_window > self.centerline.shape[0]] -= self.centerline.shape[0]
-            idxs = np.setdiff1d(idxs, remove_window)
-
-            # print(rand_idx)
-            xc, yc = self.centerline[rand_idx, :2]
-            s, _ = self.track.centerline.spline.calc_arclength_inaccurate(xc, yc)
-            yaw = self.yaw_spline(s)    
-            wl, wr = self.centerline[rand_idx, 2:4] # track width at (xc, yc)
-            ey = np.random.uniform(-wr, wl)
-
-            dx = -ey * np.sin(yaw)
-            dy = ey * np.cos(yaw)
-            x = xc + dx
-            y = yc + dy
-            r = np.random.uniform(r_min, r_max)
-            curr = self._draw_circle(x, y, r)
-        return curr
-
-    def _draw_circle(self, x, y, r):
-        """draws circle on the occupancy grid"""
-        scale = self.track.spec.resolution # conversion faactor pixel -> m
-        ox, oy, yaw = self.track.spec.origin
-        if r < 0.0:
-            r = 0.0
-        r = int(r / scale)
-        dx = x - ox
-        dy = y - oy
-        c = np.cos(-yaw)
-        s = np.sin(-yaw)
-        x = c * dx - s * dy
-        y = s * dx + c * dy
-        x = int(x / scale) 
-        y = int(y / scale)
-        self.track.occupancy_map = cv2.circle(self.track.occupancy_map, (x, y), r, 0.0, -1)
-    
     def _check_done(self):
         """
         Check if the current rollout is done
