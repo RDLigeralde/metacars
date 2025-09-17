@@ -3,8 +3,8 @@ world:
   map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 8 # set -1 to use number of cpu cores
-    type: dummy # subproc or dummy
+    count: 21 # set -1 to use number of cpu cores
+    type: subproc # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
   timestep: 0.01
@@ -15,7 +15,7 @@ world:
   control_input: ['speed', 'steering_angle']
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
-  shuffle_freq: 5
+  n_steps: 15 # mid360 gets 10hz, 100 steps per second == 10 steps between readings. Then raised to account for other sources of delay
 
 car:
   # dr_param_ex:
@@ -68,8 +68,8 @@ ppo_params:
   recurrent: False
   device: cuda
   learning_rate: 0.0001
-  n_steps: 2048
-  batch_size: 2048
+  n_steps: 4096
+  batch_size: 4096
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95

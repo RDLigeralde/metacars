@@ -1,10 +1,44 @@
+from stable_baselines3.common.monitor import Monitor
+from wandb.integration.sb3 import WandbCallback
+import gymnasium as gym
+
 from wandb.integration.sb3 import WandbCallback
 import wandb
+
+import numpy as np
 import yaml
 import os
 
-from stable_baselines3.common.monitor import Monitor
-import gymnasium as gym
+
+class MultiStepWrapper(gym.Wrapper):
+    def __init__(self, env: gym.Env, n_steps: int):
+        """
+        Gym wrapper to repeat the same action
+        for n_steps in the environment.
+
+        Args:
+            env (gym.Env): The environment to wrap.
+            n_steps (int): The number of steps to repeat the action.
+        """
+        super().__init__(env)
+        self.n_steps = n_steps
+        self.basespace = env.action_space
+        self.action_space = gym.spaces.Box(
+            low=np.repeat(self.basespace.low, self.n_steps, axis=0),
+            high=np.repeat(self.basespace.high, self.n_steps, axis=0),
+            dtype=self.basespace.dtype
+        )
+
+    def step(self, actions: np.ndarray):
+        action_seq = actions.reshape((self.n_steps, self.basespace.shape[0]))
+        total_reward = 0.0
+        for action in action_seq:
+            obs, reward, done, truncated, info = self.env.step(action)
+            total_reward += reward
+            if done or truncated:
+                break
+        return obs, total_reward, done, truncated, info
+
 
 def get_cfg_dicts(yml_path):
     """Gets configuration dictionaries from a YAML file"""
@@ -29,6 +63,7 @@ def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
     gets a unique, fixed, track
     """
     tracks = os.listdir(global_cfg['map'])
+    n_steps = global_cfg.get('n_steps', 1)
     def _init():
         if os.path.isdir(os.path.join(global_cfg['map'], tracks[0])):
             track = os.path.join(global_cfg['map'], tracks[rank])
@@ -37,6 +72,8 @@ def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
         local_cfg = global_cfg.copy()
         local_cfg['map'] = track
         env = gym.make('f1tenth-v0-legacy', config=local_cfg, render_mode=render_mode)
+        if n_steps > 1:
+            env = MultiStepWrapper(env, n_steps)
         env = Monitor(env)
         env.reset(seed = seed + rank)
         return env
