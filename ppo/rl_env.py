@@ -43,6 +43,8 @@ class F110EnvLegacy(F110Env):
         config['params'] = self._sample_dict(self.params_input)
         super().__init__(config, render_mode, **kwargs)
         self.render_mode = render_mode
+        self.n_shuffles = 0
+        self.shuffle_freq = config.get('shuffle_freq', -1) # how often to randomize params (in resets)
 
         self.centerline = self._update_centerline(config['map'])
         self.raceline = self._update_raceline(config['map'])
@@ -202,13 +204,13 @@ class F110EnvLegacy(F110Env):
         prog = current_s - self.last_s[i]
         
         # Account for lapping
-        if current_s < 0.1 * self.track.centerline.spline.s[-1] and self.last_s[i] > 0.9 * self.track.centerline.spline.s[-1]:
-            prog += self.track.centerline.spline.s[-1]
+        if current_s < 0.1 * self.refline.spline.s[-1] and self.last_s[i] > 0.9 * self.refline.spline.s[-1]:
+            prog += self.refline.spline.s[-1]
         # Looped backward
-        elif self.last_s[i] < 0.1 * self.track.centerline.spline.s[-1] and current_s > 0.9 * self.track.centerline.spline.s[-1]:
-            prog -= self.track.centerline.spline.s[-1]
+        elif self.last_s[i] < 0.1 * self.refline.spline.s[-1] and current_s > 0.9 * self.refline.spline.s[-1]:
+            prog -= self.refline.spline.s[-1]
         
-        pcnt = prog / self.track.centerline.spline.s[-1]
+        pcnt = prog / self.refline.spline.s[-1]
         prog_reward = pcnt * self.PROGRESS_WEIGHT
         
         # Update total progress
@@ -432,30 +434,33 @@ class F110EnvLegacy(F110Env):
 
     def reset(self, seed=None, options=None):
         """resets agents, randomizes params"""
-        if hasattr(self, 'config_input') and hasattr(self, 'params_input'):
-            config = self._sample_dict(self.config_input)
-            config['params'] = self._sample_dict(self.params_input)
-            self.configure({'params': config['params']})
+        if hasattr(self, 'config_input') and hasattr(self, 'params_input'): # using dr
+            if self.n_shuffles == self.shuffle_freq: # time to randomize
+                config = self._sample_dict(self.config_input)
+                config['params'] = self._sample_dict(self.params_input)
+                self.configure({'params': config['params']})
 
-            for k, v in config.items():
-                if k != 'params' and hasattr(self, k):
-                    setattr(self, k, v)
+                for k, v in config.items():
+                    if k != 'params' and hasattr(self, k):
+                        setattr(self, k, v)
 
+                if self.use_trackgen:
+                    self.update_map(config['map'])
+                    self._update_map_from_track()
+                    self.centerline = self._update_centerline(config['map'])
+                    self.raceline = self._update_raceline(config['map'])
+                    self.n_shuffles = 1
+                    self.renderer, self.render_spec = make_renderer(
+                        params=self.params,
+                        track=self.track,
+                        agent_ids=self.agent_ids,
+                        render_mode=self.render_mode,
+                        render_fps=self.metadata["render_fps"],
+                    )
+                self.n_shuffles = 1
+            else:
+                self.n_shuffles += 1
         
-        if self.use_trackgen:
-            print(f"Using track: {config['map']}")
-            self.update_map(config['map'])
-            self._update_map_from_track()
-            self.centerline = self._update_centerline(config['map'])
-            self.raceline = self._update_raceline(config['map'])
-
-        self.renderer, self.render_spec = make_renderer(
-            params=self.params,
-            track=self.track,
-            agent_ids=self.agent_ids,
-            render_mode=self.render_mode,
-            render_fps=self.metadata["render_fps"],
-        )
         self.last_action = np.zeros(self.num_agents * 2)
         self._reset_pos(seed=seed, options=options)
         obs, *_, info = self.step(np.zeros(self.num_agents * 2))  # take an initial step to get obs
@@ -567,33 +572,5 @@ class F110EnvLegacy(F110Env):
             if self.toggle_list[i] < 4:
                 self.lap_times[i] = self.current_time
 
-        ## NEW -using self.total_prog to judge laps, will terminate episode after 3 laps
-        done = (self.collisions[self.ego_idx]) or int(self.total_prog) >= 3 # or np.all(self.toggle_list >= 4)
-        # self.n_laps += int(np.all(self.toggle_list >= 4)) # this is wrong becuse it counts collisions too (not sure about this comment)
-
-        
-
-
+        done = (self.collisions[self.ego_idx]) or np.all(self.toggle_list >= 4)
         return bool(done), self.toggle_list >= 4
-
-    def render(self, mode="human"):
-        """
-        Renders the environment with pyglet. Use mouse scroll in the window to zoom in/out, use mouse click drag to pan. Shows the agents, the map, current fps (bottom left corner), and the race information near as text.
-
-        Args:
-            mode (str, default='human'): rendering mode, currently supports:
-                'human': slowed down rendering such that the env is rendered in a way that sim time elapsed is close to real time elapsed
-                'human_fast': render as fast as possible
-
-        Returns:
-            None
-        """
-        # NOTE: separate render (manage render-mode) from render_frame (actual rendering with pyglet)
-        # print('rendering!')
-        if self.render_mode not in self.metadata["render_modes"]:
-            return
-        # update to the most recent occupancy grid
-        # print('rendering')
-        # self.renderer.update_occupancy(self.track)
-        self.renderer.update(state=self.render_obs)
-        return self.renderer.render()

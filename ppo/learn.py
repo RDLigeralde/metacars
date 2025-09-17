@@ -10,7 +10,7 @@ from stable_baselines3 import PPO
 import gymnasium as gym
 import wandb
 
-from utils import get_cfg_dicts, CustomWandbCallback
+import utils
 
 import argparse
 import os
@@ -38,7 +38,7 @@ def train(
             }
         )
         model_save_freq = model_save_freq if model_save_freq else train_args['total_timesteps']
-        wandb_callback = CustomWandbCallback(
+        wandb_callback = utils.CustomWandbCallback(
             gradient_save_freq=0, 
             model_save_path=f"models/{yml_name}/{run_name}", 
             model_save_freq=model_save_freq,
@@ -83,21 +83,14 @@ def train(
     
     if num_envs == 1:
         env = make_env()
-    elif num_envs > 1:
-        env = make_vec_env(
-            make_env,
-            n_envs=num_envs,
-            vec_env_cls=vec_env_cls,
-            vec_env_kwargs=vec_env_kwargs
-        )
     else:
-        num_envs = os.cpu_count()
-        env = make_vec_env(
-            make_env,
-            n_envs=num_envs,
-            vec_env_cls=vec_env_cls,
-            vec_env_kwargs=vec_env_kwargs
-        )
+        if num_envs < 0:
+            num_envs = os.cpu_count()
+        env_inits = [
+            utils.make_envs(i, env_args, render_mode, seed=env_args['seed']) 
+            for i in range(num_envs)
+        ]
+        env = vec_env_cls(env_inits, **vec_env_kwargs)
 
     eval_env = make_vec_env(
         make_env,
@@ -160,7 +153,7 @@ def main():
     parser.add_argument('--run_name', type=str, help='Name for distinguishing runs')
     args = parser.parse_args()
 
-    env_args, ppo_args, train_args, log_args = get_cfg_dicts(args.config)
+    env_args, ppo_args, train_args, log_args = utils.get_cfg_dicts(args.config)
     yml_name = os.path.basename(args.config)
     train(
         env_args=env_args,

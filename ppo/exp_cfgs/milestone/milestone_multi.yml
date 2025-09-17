@@ -3,8 +3,8 @@ world:
   map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 8 # set -1 to use number of cpu cores
-    type: dummy # subproc or dummy
+    count: 21 # set -1 to use number of cpu cores
+    type: subproc # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
   timestep: 0.01
@@ -40,7 +40,7 @@ car:
 reward_params:
   refline_type: raceline  # raceline or centerline
   vel_action_change_penalty: -0.05  # -0.5
-  steer_action_change_penalty: -0.1  # -1.0
+  steer_action_change_penalty: -0.05  # -1.0
   stagnation_penalty: 0.0
   stagnation_cutoff: 0.0  # delta s as a fraction of total track length
   velocity_reward_scale: 0.0

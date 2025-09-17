@@ -1,9 +1,9 @@
 world:
   seed: 42
-  map: /home/roberto/indep/agent2d/agent/tracks/Monza # either single map or dir to be sampled from in domain randomization
+  map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 3 # set -1 to use number of cpu cores
+    count: 8 # set -1 to use number of cpu cores
     type: dummy # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
@@ -15,6 +15,7 @@ world:
   control_input: ['speed', 'steering_angle']
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
+  shuffle_freq: 5 # how many episodes between randomizing env params
 
 car:
   # dr_param_ex:
@@ -38,13 +39,14 @@ car:
   sv_max: 3.2
 
 reward_params:
-  vel_action_change_penalty: 0.0  # -0.5
+  refline_type: raceline  # raceline or centerline
+  vel_action_change_penalty: -0.05  # -0.5
   steer_action_change_penalty: -0.05  # -1.0
   stagnation_penalty: 0.0
   stagnation_cutoff: 0.0  # delta s as a fraction of total track length
   velocity_reward_scale: 0.0
   heading_penalty: -1.0
-  progress_weight: 100
+  progress_weight: 0
   crash_curriculum: 100000  # int(1e5)
   delta_u_curriculum: 1000000  # int(1e6)
   v_ref_curriculum: 1000000  # int(1e6)
@@ -53,8 +55,8 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.005
+  initial_milestone: 0.005
   overtake_reward: 0.0
 
 ppo_params:
@@ -88,6 +90,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
+  log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: uname_debug
+  run_name: reward_purestone_odom_b2048_raceline
