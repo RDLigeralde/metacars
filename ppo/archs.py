@@ -10,7 +10,8 @@ class LidarOdomBlender(BaseFeaturesExtractor):
         self,
         observation_space: Space,
         num_agents: int,
-        num_odom_layers: int
+        num_odom_layers: int,
+        num_cline_layers: int = 0
     ):
         """
         Combines TinyLidarNet from 
@@ -18,6 +19,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
         with MLP for odometry data
         """
         self.num_beams = observation_space['scan'].shape[-1]
+        self.n_cline_points = observation_space['cline_ctx'].shape[-2]
         self.num_odom_layers = num_odom_layers
         features_dim = self._conv_outsize() * num_agents
         super().__init__(observation_space, features_dim=features_dim)
@@ -43,10 +45,19 @@ class LidarOdomBlender(BaseFeaturesExtractor):
                 self.odom_mlp.append(nn.Linear(features_dim, features_dim))
                 self.odom_mlp.append(nn.ReLU())
 
+        self.cline_mlp = nn.ModuleList()
+        if num_cline_layers > 0:
+            self.cline_mlp.append(nn.Linear(self.n_cline_points * 2 * num_agents, features_dim))
+            self.cline_mlp.append(nn.ReLU())
+            for _ in range(num_cline_layers - 1):
+                self.cline_mlp.append(nn.Linear(features_dim, features_dim))
+                self.cline_mlp.append(nn.ReLU())
+
     def forward(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
-        scan, odom = obs["scan"], obs["odometry"] # (n_envs, n_agents, num_beams), (n_envs, n_agents, odom_dim)
+        scan, odom, cline = obs["scan"], obs["odometry"], obs["cline_ctx"]
         scan = scan.reshape(scan.shape[0], -1).unsqueeze(1) # (n_envs, 1, n_agents * num_beams)
         odom = odom.reshape(odom.shape[0], -1) # (n_envs, n_agents * odom_dim)
+        cline = cline.reshape(cline.shape[0], -1) # (n_envs, n_agents * n_cline_points * 2)
 
         scan = self.convs(scan)
         scan = torch.flatten(scan, start_dim=1)
@@ -54,6 +65,10 @@ class LidarOdomBlender(BaseFeaturesExtractor):
             for layer in self.odom_mlp:
                 odom = layer(odom)
             scan = scan + odom
+        if len(self.cline_mlp) > 0:
+            for layer in self.cline_mlp:
+                cline = layer(cline)
+            scan = scan + cline
 
         return scan
 

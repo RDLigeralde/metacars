@@ -1,4 +1,4 @@
-from f1tenth_gym.envs.track.utils import find_track_dir
+from f1tenth_gym.envs.track.utils import find_track_dir, nearest_point_on_trajectory
 from f1tenth_gym.envs.rendering import make_renderer
 from f1tenth_gym.envs.reset import make_reset_fn
 from scipy.interpolate import CubicSpline
@@ -23,7 +23,8 @@ class F110EnvLegacy(F110Env):
         """ 
         self.config_input = config
         self.params_input = config['params']
-        self.num_obstacles = config["num_obstacles"]
+        self.num_obstacles = config.get('num_obstacles', 0)
+        self.n_cline_points = config.get('n_cline_points', 0)
         self.reward_params = config.get('reward_params', {})
         self._init_reward_params()
 
@@ -145,7 +146,14 @@ class F110EnvLegacy(F110Env):
         self.sim.step(sim_action)
 
         # observation
-        obs = self.observation_type.observe()
+        if self.n_cline_points == 0:
+            obs = self.observation_type.observe()
+        else: # hardcoded for single agent atm
+            xy_pose = self.sim.agent_poses[self.ego_idx, :2].astype(np.float32)
+            *_, n_idx = nearest_point_on_trajectory(xy_pose, self.centerline[:, :2])
+            rolled_centerline = np.roll(self.centerline, shift=-n_idx, axis=0) # handle wraparound near start of track
+            self.cline_points = rolled_centerline[1:self.n_cline_points+1, :2] # start at 1 to guarantee points are in front
+            obs = self.observation_type.observe()
 
         # times
         self.current_time = self.current_time + self.timestep

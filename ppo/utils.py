@@ -5,6 +5,7 @@ import gymnasium as gym
 from wandb.integration.sb3 import WandbCallback
 import wandb
 
+from numba import njit
 import numpy as np
 import yaml
 import os
