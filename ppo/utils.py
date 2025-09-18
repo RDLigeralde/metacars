@@ -22,17 +22,10 @@ class MultiStepWrapper(gym.Wrapper):
         """
         super().__init__(env)
         self.n_steps = n_steps
-        self.basespace = env.action_space
-        self.action_space = gym.spaces.Box(
-            low=np.repeat(self.basespace.low, self.n_steps, axis=0),
-            high=np.repeat(self.basespace.high, self.n_steps, axis=0),
-            dtype=self.basespace.dtype
-        )
 
-    def step(self, actions: np.ndarray):
-        action_seq = actions.reshape((self.n_steps, self.basespace.shape[0]))
+    def step(self, action: np.ndarray):
         total_reward = 0.0
-        for action in action_seq:
+        for _ in range(self.n_steps):
             obs, reward, done, truncated, info = self.env.step(action)
             total_reward += reward
             if done or truncated:
@@ -46,7 +39,7 @@ def get_cfg_dicts(yml_path):
         with open(yml_path, 'r') as f:
             cfg = yaml.safe_load(f)
             world, car, rewards, ppo_params, train_params, log = (
-                cfg[key] for key in 
+                cfg[key] for key in
                 ['world', 'car', 'reward_params', 'ppo_params', 'train_params', 'log']
             )
             world['params'] = car
@@ -80,6 +73,7 @@ def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
     
     return _init
   
+
 class CustomWandbCallback(WandbCallback):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

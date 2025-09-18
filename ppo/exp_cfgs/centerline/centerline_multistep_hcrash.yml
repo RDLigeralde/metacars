@@ -15,7 +15,7 @@ world:
   control_input: ['speed', 'steering_angle']
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
-  n_steps: 2 # can reasonably expect ~50hz on Jetson
+  n_steps: 15 # mid360 gets 10hz, 100 steps per second == 10 steps between readings. Then raised to account for other sources of delay
 
 car:
   # dr_param_ex:
@@ -52,7 +52,7 @@ reward_params:
   v_ref_curriculum: 1000000  # int(1e6)
   milestone_reward: 5
   decay_interval: 100000  # 1e5
-  max_crash_penalty: 10
+  max_crash_penalty: 20
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
   milestone_increment: 0.01
@@ -83,7 +83,7 @@ ppo_params:
   sde_sample_freq: -1
 
 train_params:
-  total_timesteps: 15_000_000
+  total_timesteps: 5_000_000
   save_interval: 100_000
   log_interval: 1
   reset_num_timesteps: False
