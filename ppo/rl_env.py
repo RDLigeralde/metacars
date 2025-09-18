@@ -59,9 +59,6 @@ class F110EnvLegacy(F110Env):
         self.crash_penalty = -1.0
         self.total_timesteps = 0
 
-        self.MILESTONE_INCREMEMENT = 0.1
-        self.milestone = 0.1 # percentage progress that will trigger a large positive reward
-
         self.n_timeouts = 0
         self.n_crashes = 0
         self.last_run_progress = 0.0
@@ -229,13 +226,11 @@ class F110EnvLegacy(F110Env):
     def _get_milestone_reward(self):
         """Calculate milestone reward if threshold is passed"""
         if self.total_prog > self.milestone:
-            self.milestone += self.MILESTONE_INCREMEMENT
-            try:
-                milestone_reward = self.MILESTONE_REWARD
-                self.last_checkpoint_time = self.current_time
-                return milestone_reward
-            except:
-                raise Exception('div by 0')
+            print(self.total_prog, self.milestone)
+            self.milestone += self.MILESTONE_INCREMENT
+            milestone_reward = self.MILESTONE_REWARD
+            self.last_checkpoint_time = self.current_time
+            return milestone_reward
         else:
             return 0.0
 
@@ -393,7 +388,7 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMEMENT
+        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset
@@ -492,7 +487,7 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMEMENT
+        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset

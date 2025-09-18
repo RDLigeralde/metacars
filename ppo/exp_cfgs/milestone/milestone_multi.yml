@@ -1,6 +1,6 @@
 world:
-  seed: 42
-  map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
+  seed: 43
+  map: /Users/robbyligeralde/metacars/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 21 # set -1 to use number of cpu cores
@@ -14,7 +14,9 @@ world:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
   normalize_input: true
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
+  shuffle_freq: 1 # how often to randomize env params
+  n_steps: 2
 
 car:
   # dr_param_ex:

@@ -1,6 +1,6 @@
 world:
   seed: 42
-  map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
+  map: /Users/robbyligeralde/metacars/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
     count: 21 # set -1 to use number of cpu cores
@@ -14,7 +14,7 @@ world:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
   normalize_input: true
-  render_mode: null # set null to disable rendering: only for single env eval / debugging
+  render_mode: human # set null to disable rendering: only for single env eval / debugging
   n_steps: 2 # can reasonably expect ~50hz on Jetson
   n_cline_points: 25
   cline_norm_x: 20
@@ -58,8 +58,8 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.05
+  initial_milestone: 0.05
   overtake_reward: 0.0
 
 ppo_params:
