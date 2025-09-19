@@ -44,7 +44,7 @@ car:
 reward_params:
   refline_type: centerline  # raceline or centerline
   vel_action_change_penalty: -0.05  # -0.5
-  steer_action_change_penalty: -0.1  # -1.0
+  steer_action_change_penalty: -0.2  # -1.0
   stagnation_penalty: 0.0
   stagnation_cutoff: 0.0  # delta s as a fraction of total track length
   velocity_reward_scale: 0.0
@@ -58,8 +58,8 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.05
-  initial_milestone: 0.05
+  milestone_increment: 0.01
+  initial_milestone: 0.01
   overtake_reward: 0.0
 
 ppo_params:

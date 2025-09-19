@@ -58,9 +58,10 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.05
-  initial_milestone: 0.05
+  milestone_increment: 0.01
+  initial_milestone: 0.01
   overtake_reward: 0.0
+  existence_penalty: -0.01
 
 ppo_params:
   feature_extractor:

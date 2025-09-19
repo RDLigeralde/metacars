@@ -4,6 +4,7 @@ from f1tenth_gym.envs.reset import make_reset_fn
 from scipy.interpolate import CubicSpline
 from f1tenth_gym.envs import F110Env
 
+from utils import downsample_centerline
 import numpy as np
 import os
 
@@ -55,12 +56,11 @@ class F110EnvLegacy(F110Env):
         self.stag_count = 0 #np.zeros((self.num_agents,))
         self.total_prog = 0 #np.zeros((self.num_agents,))
 
+        self.centerline_ckpts = downsample_centerline(self.centerline[:, :2], self.MILESTONE_INCREMENT)
+
         # crash penalty for rewards that will gradually get stricter
         self.crash_penalty = -1.0
         self.total_timesteps = 0
-
-        self.MILESTONE_INCREMEMENT = 0.1
-        self.milestone = 0.1 # percentage progress that will trigger a large positive reward
 
         self.n_timeouts = 0
         self.n_crashes = 0
@@ -204,40 +204,34 @@ class F110EnvLegacy(F110Env):
             return 1
         return 1.0 / (1.0 + np.exp(-x))
 
-    def _get_progress_reward(self, i, current_s):
+    def _get_progress_reward(self):
         """Calculate progress reward for agent i"""
-        if not hasattr(self, "last_s"):
-            self.last_s = [0.0] * self.num_agents
-        
-        prog = current_s - self.last_s[i]
-        
-        # Account for lapping
-        if current_s < 0.1 * self.refline.spline.s[-1] and self.last_s[i] > 0.9 * self.refline.spline.s[-1]:
-            prog += self.refline.spline.s[-1]
-        # Looped backward
-        elif self.last_s[i] < 0.1 * self.refline.spline.s[-1] and current_s > 0.9 * self.refline.spline.s[-1]:
-            prog -= self.refline.spline.s[-1]
-        
-        pcnt = prog / self.refline.spline.s[-1]
-        prog_reward = pcnt * self.PROGRESS_WEIGHT
-        
-        # Update total progress
-        self.total_prog += pcnt
-        
-        return prog_reward, pcnt
+        current_s, _ = self.refline.spline.calc_arclength_inaccurate(
+            self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
+        )
+        prog = current_s - self.last_s[self.ego_idx]
+        if prog < -0.5 * self.refline.spline.total_length:  # wrapped around
+            prog += self.refline.spline.total_length
+            self.n_laps += 1
+        elif prog < 0:  # went backwards
+            prog = 0.0
+        self.total_prog += prog
+        self.last_s[self.ego_idx] = current_s
+        prog_reward = self.PROGRESS_WEIGHT * prog
+        return prog_reward, prog
 
     def _get_milestone_reward(self):
         """Calculate milestone reward if threshold is passed"""
-        if self.total_prog > self.milestone:
-            self.milestone += self.MILESTONE_INCREMEMENT
-            try:
-                milestone_reward = self.MILESTONE_REWARD
-                self.last_checkpoint_time = self.current_time
-                return milestone_reward
-            except:
-                raise Exception('div by 0')
-        else:
-            return 0.0
+        rew = 0
+        *_, new_ckpt = nearest_point_on_trajectory(
+            np.array([self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]], dtype=np.float32), 
+            self.centerline_ckpts
+        )
+        lap_flag = new_ckpt == 0 and self.current_ckpt == len(self.centerline_ckpts) - 1
+        if lap_flag or new_ckpt > self.current_ckpt:
+            self.current_ckpt = new_ckpt
+            rew += self.MILESTONE_REWARD
+        return rew
 
     def _get_steering_change_penalty(self, idxs, action):
         """Calculate penalty for steering action changes"""
@@ -393,7 +387,7 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMEMENT
+        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset
@@ -456,6 +450,7 @@ class F110EnvLegacy(F110Env):
                     self.update_map(config['map'])
                     self._update_map_from_track()
                     self.centerline = self._update_centerline(config['map'])
+                    self.centerline_ckpts = downsample_centerline(self.centerline[:, :2], self.MILESTONE_INCREMENT)
                     self.raceline = self._update_raceline(config['map'])
                     self.n_shuffles = 1
                     self.renderer, self.render_spec = make_renderer(
@@ -471,6 +466,10 @@ class F110EnvLegacy(F110Env):
         
         self.last_action = np.zeros(self.num_agents * 2)
         self._reset_pos(seed=seed, options=options)
+        *_, self.current_ckpt = nearest_point_on_trajectory(
+            np.array([self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]]), 
+            self.centerline_ckpts
+        )
         obs, *_, info = self.step(np.zeros(self.num_agents * 2))  # take an initial step to get obs
         return obs, info
     
@@ -492,7 +491,7 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMEMENT
+        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset

@@ -16,7 +16,7 @@ world:
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
   n_steps: 2 # can reasonably expect ~50hz on Jetson
-  n_cline_points: 25
+  n_cline_points: 20
   cline_norm_x: 20
   cline_norm_y: 20
 
@@ -58,8 +58,8 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.05
-  initial_milestone: 0.05
+  milestone_increment: 0.01
+  initial_milestone: 0.01
   overtake_reward: 0.0
 
 ppo_params:
@@ -67,7 +67,7 @@ ppo_params:
     type: LidarOdomBlender # null for default or name of BaseFeaturesExtractor subclass
     args: # args for provided feature extractor
       num_odom_layers: 1
-      num_cline_layers: 1
+      num_cline_layers: 0
   init_path: null # if resuming a run
   recurrent: False
   device: cuda

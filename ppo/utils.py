@@ -73,6 +73,49 @@ def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
         return env
     
     return _init
+
+
+def downsample_centerline(centerline: np.ndarray, pcnt: float):
+    """Downsamples centerline into evenly spaced checkpoints"""
+    segment_lengths = np.linalg.norm(np.diff(centerline, axis=0, append=centerline[0:1]), axis=1)
+    total_length = np.sum(segment_lengths)
+    num_points = int(len(centerline) * pcnt)
+    target_spacing = total_length / num_points
+
+    ckpts = [0]
+    dist_covered = 0
+    current_segment_idx = 0
+    ckpts.append(centerline[0])
+
+    for i in range(1, num_points):
+        target_dist = i * target_spacing
+        
+        while (
+            current_segment_idx < len(centerline) and 
+            dist_covered + segment_lengths[current_segment_idx] < target_dist
+        ):
+            dist_covered += segment_lengths[current_segment_idx]
+            current_segment_idx += 1
+            if current_segment_idx >= len(centerline):
+                break
+
+        if current_segment_idx >= len(centerline):
+            break
+
+        p1 = centerline[current_segment_idx]
+        p2 = centerline[(current_segment_idx + 1) % len(centerline)] # Wrap around
+
+        # Avoid division by zero if segment_lengths[current_segment_idx] is 0
+        if segment_lengths[current_segment_idx] == 0:
+            new_point = p1 # Just take p1 if segment has no length
+        else:
+            dist_into_segment = target_dist - dist_covered
+            interpolation_factor = dist_into_segment / segment_lengths[current_segment_idx]
+            new_point = p1 + interpolation_factor * (p2 - p1)
+        
+        ckpts.append(new_point)
+        
+    return np.array(ckpts)
   
 
 class CustomWandbCallback(WandbCallback):
