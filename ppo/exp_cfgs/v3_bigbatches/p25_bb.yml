@@ -3,8 +3,8 @@ world:
   map: /home/roberto/indep/agent2d/agent/tracks # either single map or dir to be sampled from in domain randomization
   num_agents: 1
   num_envs:
-    count: 3 # set -1 to use number of cpu cores
-    type: dummy # subproc or dummy
+    count: 21 # set -1 to use number of cpu cores
+    type: subproc # subproc or dummy
   num_obstacles: 0 # spawns obstacles in range [0, num_obstacles]
   num_beams: 540 # number of lidar beams
   timestep: 0.01
@@ -15,8 +15,10 @@ world:
   control_input: ['speed', 'steering_angle']
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
-  n_steps: 2
-  n_cline_points: 20
+  n_steps: 2 # can reasonably expect ~50hz on Jetson
+  n_cline_points: 25
+  cline_norm_x: 20
+  cline_norm_y: 20
 
 car:
   # dr_param_ex:
@@ -40,13 +42,14 @@ car:
   sv_max: 3.2
 
 reward_params:
-  vel_action_change_penalty: 0.0  # -0.5
-  steer_action_change_penalty: -0.05  # -1.0
+  refline_type: centerline  # raceline or centerline
+  vel_action_change_penalty: -0.05  # -0.5
+  steer_action_change_penalty: -0.1  # -1.0
   stagnation_penalty: 0.0
   stagnation_cutoff: 0.0  # delta s as a fraction of total track length
   velocity_reward_scale: 0.0
   heading_penalty: -1.0
-  progress_weight: 100
+  progress_weight: 0
   crash_curriculum: 100000  # int(1e5)
   delta_u_curriculum: 1000000  # int(1e6)
   v_ref_curriculum: 1000000  # int(1e6)
@@ -55,8 +58,7 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.25 # how much to downsample the cline points for milestone checking
   overtake_reward: 0.0
 
 ppo_params:
@@ -65,13 +67,12 @@ ppo_params:
     args: # args for provided feature extractor
       num_odom_layers: 1
       num_cline_layers: 1
-      include_cline_widths: True
   init_path: null # if resuming a run
   recurrent: False
   device: cuda
   learning_rate: 0.0001
-  n_steps: 2048
-  batch_size: 2048
+  n_steps: 8192
+  batch_size: 8192
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
@@ -92,6 +93,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
+  log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: uname_debug
+  run_name: reward_svsdoublesmooth_odom_b2048

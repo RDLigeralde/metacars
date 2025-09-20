@@ -204,21 +204,27 @@ class F110EnvLegacy(F110Env):
             return 1
         return 1.0 / (1.0 + np.exp(-x))
 
-    def _get_progress_reward(self):
+    def _get_progress_reward(self, i, current_s):
         """Calculate progress reward for agent i"""
-        current_s, _ = self.refline.spline.calc_arclength_inaccurate(
-            self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]
-        )
-        prog = current_s - self.last_s[self.ego_idx]
-        if prog < -0.5 * self.refline.spline.total_length:  # wrapped around
-            prog += self.refline.spline.total_length
-            self.n_laps += 1
-        elif prog < 0:  # went backwards
-            prog = 0.0
-        self.total_prog += prog
-        self.last_s[self.ego_idx] = current_s
-        prog_reward = self.PROGRESS_WEIGHT * prog
-        return prog_reward, prog
+        if not hasattr(self, "last_s"):
+            self.last_s = [0.0] * self.num_agents
+        
+        prog = current_s - self.last_s[i]
+        
+        # Account for lapping
+        if current_s < 0.1 * self.refline.spline.s[-1] and self.last_s[i] > 0.9 * self.refline.spline.s[-1]:
+            prog += self.refline.spline.s[-1]
+        # Looped backward
+        elif self.last_s[i] < 0.1 * self.refline.spline.s[-1] and current_s > 0.9 * self.refline.spline.s[-1]:
+            prog -= self.refline.spline.s[-1]
+        
+        pcnt = prog / self.refline.spline.s[-1]
+        prog_reward = pcnt * self.PROGRESS_WEIGHT
+        
+        # Update total progress
+        self.total_prog += pcnt
+        
+        return prog_reward, pcnt
 
     def _get_milestone_reward(self):
         """Calculate milestone reward if threshold is passed"""
@@ -227,7 +233,7 @@ class F110EnvLegacy(F110Env):
             np.array([self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]], dtype=np.float32), 
             self.centerline_ckpts
         )
-        lap_flag = new_ckpt == 0 and self.current_ckpt == len(self.centerline_ckpts) - 1
+        lap_flag = new_ckpt < self.current_ckpt and (self.current_ckpt - new_ckpt) > (len(self.centerline_ckpts) / 2) # wraparound with guard for car learning to go backwards
         if lap_flag or new_ckpt > self.current_ckpt:
             self.current_ckpt = new_ckpt
             rew += self.MILESTONE_REWARD
@@ -349,7 +355,6 @@ class F110EnvLegacy(F110Env):
 
     def _init_reward_params(self):
         self.MILESTONE_INCREMENT = self.reward_params.get('milestone_increment')
-        self.milestone = self.reward_params.get('initial_milestone')  # percentage progress that will trigger a large positive reward
         self.crash_penalty = self.reward_params.get('initial_crash_penalty')
         self.VEL_ACTION_CHANGE_PENALTY = self.reward_params.get('vel_action_change_penalty')
         self.STEER_ACTION_CHANGE_PENALTY = self.reward_params.get('steer_action_change_penalty')
@@ -387,7 +392,6 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset
@@ -491,7 +495,6 @@ class F110EnvLegacy(F110Env):
         self.near_starts = np.array([True] * self.num_agents)
         self.toggle_list = np.zeros((self.num_agents,))
         self.total_prog = 0.0
-        self.milestone = self.MILESTONE_INCREMENT
         self.last_checkpoint_time = 0.0
 
         # states after reset

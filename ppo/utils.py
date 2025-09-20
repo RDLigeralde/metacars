@@ -5,7 +5,6 @@ import gymnasium as gym
 from wandb.integration.sb3 import WandbCallback
 import wandb
 
-from numba import njit
 import numpy as np
 import yaml
 import os
@@ -82,10 +81,9 @@ def downsample_centerline(centerline: np.ndarray, pcnt: float):
     num_points = int(len(centerline) * pcnt)
     target_spacing = total_length / num_points
 
-    ckpts = [0]
     dist_covered = 0
     current_segment_idx = 0
-    ckpts.append(centerline[0])
+    ckpts = [centerline[0]]
 
     for i in range(1, num_points):
         target_dist = i * target_spacing
