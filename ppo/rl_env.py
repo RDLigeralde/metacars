@@ -25,8 +25,13 @@ class F110EnvLegacy(F110Env):
         self.config_input = config
         self.params_input = config['params']
         self.num_obstacles = config.get('num_obstacles', 0)
-        self.n_cline_points = config.get('n_cline_points', 0)
         self.reward_params = config.get('reward_params', {})
+
+        cline_args = config.get('cline_args', {})
+        self.n_cline_points = cline_args.get('n_points', 0)
+        self.cline_idx_spacing = cline_args.get('idx_spacing', 1)
+        self.cline_norm_x = cline_args.get('norm_x', 25)
+        self.cline_norm_y = cline_args.get('norm_y', 25)
         self._init_reward_params()
 
         if os.path.exists(config['map']) and os.path.isdir(config['map']):
@@ -47,6 +52,8 @@ class F110EnvLegacy(F110Env):
         self.render_mode = render_mode
         self.n_shuffles = 0
         self.shuffle_freq = config.get('shuffle_freq', -1) # how often to randomize params (in resets)
+
+
 
         self.centerline = self._update_centerline(config['map'])
         self.raceline = self._update_raceline(config['map'])
@@ -152,7 +159,8 @@ class F110EnvLegacy(F110Env):
             xy_pose = self.sim.agent_poses[self.ego_idx, :2].astype(np.float32)
             *_, n_idx = nearest_point_on_trajectory(xy_pose, self.centerline[:, :2])
             rolled_centerline = np.roll(self.centerline, shift=-n_idx, axis=0) # handle wraparound near start of track
-            self.cline_points = rolled_centerline[1:self.n_cline_points+1, :2] # start at 1 to guarantee points are in front
+            cline_idxs = self.cline_idx_spacing * np.arange(0, self.n_cline_points) + 1 # start at 1 to guarantee points are in front
+            self.cline_points = rolled_centerline[cline_idxs % len(rolled_centerline), :2] # start at 1 to guarantee points are in front
             obs = self.observation_type.observe()
 
         # times

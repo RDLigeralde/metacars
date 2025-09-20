@@ -17,10 +17,10 @@ world:
   render_mode: null # set null to disable rendering: only for single env eval / debugging
   n_steps: 2
   cline_args:
-    n_points: 5
-    idx_spacing: 5
-    norm_x: 10
-    norm_y: 10
+    n_points: 50
+    idx_spacing: 10
+    norm_x: 300
+    norm_y: 300
 
 car:
   # dr_param_ex:
@@ -95,6 +95,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
+  log_tensorboard: True
   project_name: null # set null to disable wandb
   run_name: uname_debug
