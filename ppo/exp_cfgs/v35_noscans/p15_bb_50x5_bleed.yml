@@ -9,7 +9,7 @@ world:
   num_beams: 540 # number of lidar beams
   timestep: 0.01
   observation_config: 
-    type: lidar_conv
+    type: lidar_conv # need the nested dict for the observation config
   reset_config:
     type: rl_random_static
   control_input: ['speed', 'steering_angle']
@@ -17,10 +17,10 @@ world:
   render_mode: null # set null to disable rendering: only for single env eval / debugging
   n_steps: 2
   cline_args:
-    n_points: 5
+    n_points: 50
     idx_spacing: 5
-    norm_x: 10
-    norm_y: 10
+    norm_x: 150
+    norm_y: 150
 
 car:
   # dr_param_ex:
@@ -59,9 +59,9 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.15
   overtake_reward: 0.0
+  existence_penalty: -0.075
 
 ppo_params:
   feature_extractor:
@@ -69,7 +69,6 @@ ppo_params:
     args: # args for provided feature extractor
       num_odom_layers: 1
       num_cline_layers: 1
-      use_convs: False
   init_path: null # if resuming a run
   recurrent: False
   device: cuda
@@ -96,6 +95,6 @@ train_params:
   progress_bar: False
 
 log:
-  log_tensorboard: False
+  log_tensorboard: True
   project_name: null # set null to disable wandb
   run_name: uname_debug

@@ -59,8 +59,7 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.15
   overtake_reward: 0.0
 
 ppo_params:

@@ -15,7 +15,7 @@ world:
   control_input: ['speed', 'steering_angle']
   normalize_input: true
   render_mode: null # set null to disable rendering: only for single env eval / debugging
-  n_steps: 2
+  n_steps: 2 # can reasonably expect ~50hz on Jetson
   cline_args:
     n_points: 5
     idx_spacing: 5
@@ -44,8 +44,9 @@ car:
   sv_max: 3.2
 
 reward_params:
-  vel_action_change_penalty: 0.0  # -0.5
-  steer_action_change_penalty: -0.05  # -1.0
+  refline_type: centerline  # raceline or centerline
+  vel_action_change_penalty: -0.05  # -0.5
+  steer_action_change_penalty: -0.1  # -1.0
   stagnation_penalty: 0.0
   stagnation_cutoff: 0.0  # delta s as a fraction of total track length
   velocity_reward_scale: 0.0
@@ -59,8 +60,7 @@ reward_params:
   max_crash_penalty: 10
   turn_speed_penalty: 0  # -0.1
   initial_crash_penalty: -1.0
-  milestone_increment: 0.01
-  initial_milestone: 0.01
+  milestone_increment: 0.15 # how much to downsample the cline points for milestone checking
   overtake_reward: 0.0
 
 ppo_params:
@@ -73,8 +73,8 @@ ppo_params:
   recurrent: False
   device: cuda
   learning_rate: 0.0001
-  n_steps: 2048
-  batch_size: 2048
+  n_steps: 8192
+  batch_size: 8192
   n_epochs: 10
   gamma: 0.99
   gae_lambda: 0.95
@@ -97,4 +97,4 @@ train_params:
 log:
   log_tensorboard: True
   project_name: null # set null to disable wandb
-  run_name: uname_debug
+  run_name: reward_svsdoublesmooth_odom_b2048
