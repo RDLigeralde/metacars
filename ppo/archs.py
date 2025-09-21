@@ -41,7 +41,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
 
         self.odom_mlp = nn.ModuleList()
         if num_odom_layers > 0:
-            self.odom_mlp.append(nn.Linear(5 * num_agents, self.embed_size)) # odom has 8 features
+            self.odom_mlp.append(nn.Linear(5 * num_agents, self.embed_size))
             self.odom_mlp.append(nn.ReLU())
             for _ in range(num_odom_layers - 1):
                 self.odom_mlp.append(nn.Linear(self.embed_size, self.embed_size))
@@ -86,6 +86,62 @@ class LidarOdomBlender(BaseFeaturesExtractor):
             length = (length - (kernel - 1) - 1) // stride + 1
         return length * 64 # 64 channels in last conv layer
     
+
+class CenterlineCNN(BaseFeaturesExtractor):
+    def __init__(
+        self,
+        observation_space: Space,
+        num_agents: int,
+        num_odom_layers: int
+    ):
+        self.n_cline_points = observation_space['cline_ctx'].shape[-2]
+        self.num_odom_layers = num_odom_layers
+        self.embed_size = self._conv_outsize() * num_agents
+        super().__init__(observation_space, features_dim=self.embed_size)
+
+        self.odom_mlp = nn.ModuleList()
+        if num_odom_layers > 0:
+            self.odom_mlp.append(nn.Linear(5 * num_agents, self.embed_size))
+            self.odom_mlp.append(nn.ReLU())
+            for _ in range(num_odom_layers - 1):
+                self.odom_mlp.append(nn.Linear(self.embed_size, self.embed_size))
+                self.odom_mlp.append(nn.ReLU())
+
+        self.cline_convs = nn.Sequential(
+            nn.Conv1d(2, 24, kernel_size=5, stride=2),
+            nn.ReLU(),
+            nn.Conv1d(24, 36, kernel_size=5, stride=2),
+            nn.ReLU(),
+            nn.Conv1d(36, 48, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Conv1d(48, 64, kernel_size=3, stride=1)
+        )
+
+    def forward(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
+        odom, cline = obs["odometry"], obs["cline_ctx"]
+        odom = odom.reshape(odom.shape[0], -1) # (n_envs, n_agents * odom_dim)
+        cline = cline.permute(0, 2, 1) # (n_envs, 2, n_cline_points)
+        x = self.cline_convs(cline)
+        x = torch.flatten(x, start_dim=1)
+        if len(self.odom_mlp) > 0:
+            for layer in self.odom_mlp:
+                odom = layer(odom)
+            x = x + odom
+        return x
+
+    def _conv_outsize(self) -> int:
+        """
+        Gets output size of conv layers for num_beams
+        Even if not using scan convs, it's still
+        the easiest way to align param counts
+        """
+        length = self.n_cline_points
+        kernels = [5, 5, 3, 3]
+        strides = [2, 2, 1, 1]
+        for kernel, stride in zip(kernels, strides):
+            length = (length - (kernel - 1) - 1) // stride + 1
+        return length * 64 # 64 channels in last conv layer
+
 
 class TinyLidarFCN(nn.Module):
     def __init__(self, outsize: int):

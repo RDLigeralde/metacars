@@ -4,8 +4,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
 
+from archs import LidarOdomBlender, CenterlineCNN
 from sb3_contrib import RecurrentPPO
-from archs import LidarOdomBlender
 from stable_baselines3 import PPO
 import gymnasium as gym
 import wandb
@@ -76,6 +76,13 @@ def train(
         fe_kwargs['num_agents'] = env_args['num_agents']
         policy_kwargs = dict(
             features_extractor_class=LidarOdomBlender,
+            features_extractor_kwargs=fe_kwargs
+        )
+    elif extractor_args['type'] == "CenterlineCNN":
+        fe_kwargs = extractor_args['args']
+        fe_kwargs['num_agents'] = env_args['num_agents']
+        policy_kwargs = dict(
+            features_extractor_class=CenterlineCNN,
             features_extractor_kwargs=fe_kwargs
         )
     else:
