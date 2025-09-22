@@ -162,6 +162,7 @@ class F110EnvLegacy(F110Env):
             cline_idxs = self.cline_idx_spacing * np.arange(0, self.n_cline_points) + 1 # start at 1 to guarantee points are in front
             self.cline_points = rolled_centerline[cline_idxs % len(rolled_centerline), :2] # start at 1 to guarantee points are in front
             obs = self.observation_type.observe()
+        self.current_obs = obs
 
         # times
         self.current_time = self.current_time + self.timestep
@@ -191,6 +192,7 @@ class F110EnvLegacy(F110Env):
         # calc reward
         reward, reward_info = self._get_reward(action)
         self.last_action = action
+        self.last_obs = obs
         # add in new timeout condition after 1 minute
         timeout = ((self.current_time / self.timestep) >= (60.0 / self.timestep)) 
         self.n_timeouts += int(timeout) # hope to see this get bigger overtime
@@ -291,6 +293,19 @@ class F110EnvLegacy(F110Env):
             return self.crash_penalty  # Same magnitude as crash penalty
         else:
             return 0.0
+        
+    def _get_dtheta_penalty(self, i):
+        """Calculate slip angle penalty for agent i"""
+        angvel_now = self.current_obs['odometry'][..., 2]
+        angvel_prior = self.last_obs['odometry'][..., 2] if self.last_obs is not None else 0.0
+        slip_angle = angvel_now - angvel_prior
+        slip_pen = self.HEADING_PENALTY * np.abs(slip_angle)
+        return float(slip_pen)
+    
+    def _get_slip_penalty(self):
+        slip = self.current_obs['yaw_rate'][..., -2]
+        slip_pen = self.SLIP_PENALTY * np.abs(slip)
+        return float(slip_pen)
 
     def _update_crash_penalty(self):
         """Update the crash penalty value based on curriculum"""
@@ -327,6 +342,7 @@ class F110EnvLegacy(F110Env):
             milestone_reward = self._get_milestone_reward()
             steer_penalty = self._get_steering_change_penalty(current_idxs, action)
             vel_penalty = self._get_velocity_change_penalty(current_idxs, action)
+            slip_penalty = self._get_dtheta_penalty(agent_idx)
             turn_speed_penalty = self._get_turn_speed_penalty(current_idxs, action)
             collision_penalty = self._get_collision_penalty(agent_idx)
             stagnation_penalty = self._get_stagnation_penalty(current_idxs, action)
@@ -337,6 +353,7 @@ class F110EnvLegacy(F110Env):
                 milestone_reward +
                 steer_penalty +
                 vel_penalty +
+                slip_penalty +
                 turn_speed_penalty +
                 collision_penalty +
                 stagnation_penalty
@@ -370,6 +387,7 @@ class F110EnvLegacy(F110Env):
         self.STAGNATION_CUTOFF = self.reward_params.get('stagnation_cutoff')
         self.VELOCITY_REWARD_SCALE = self.reward_params.get('velocity_reward_scale')
         self.HEADING_PENALTY = self.reward_params.get('heading_penalty')
+        self.SLIP_PENALTY = self.reward_params.get('slip_penalty')
         self.PROGRESS_WEIGHT = self.reward_params.get('progress_weight')
         self.CRASH_CURRICULUM = self.reward_params.get('crash_curriculum')
         self.DELTA_U_CURRICULUM = self.reward_params.get('delta_u_curriculum')
@@ -477,6 +495,8 @@ class F110EnvLegacy(F110Env):
                 self.n_shuffles += 1
         
         self.last_action = np.zeros(self.num_agents * 2)
+        self.current_obs = None
+        self.last_obs = None
         self._reset_pos(seed=seed, options=options)
         *_, self.current_ckpt = nearest_point_on_trajectory(
             np.array([self.poses_x[self.ego_idx], self.poses_y[self.ego_idx]]), 
