@@ -1,6 +1,5 @@
+from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv, VecFrameStack
 from stable_baselines3.common.callbacks import EvalCallback, CallbackList
-from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
 
@@ -70,41 +69,41 @@ def train(
     vec_env_cls = SubprocVecEnv if env_type == 'subproc' else DummyVecEnv
     vec_env_kwargs = {} if env_type == 'dummy' else {'start_method': 'fork'}
     policy = "MultiInputLstmPolicy" if recurrent else "MultiInputPolicy"
+    framestacks = env_args.get('framestacks', 1)
     
     if extractor_args['type'] == 'LidarOdomBlender':
         fe_kwargs = extractor_args['args']
         fe_kwargs['num_agents'] = env_args['num_agents']
+        fe_kwargs['framestacks'] = framestacks
         policy_kwargs = dict(
             features_extractor_class=LidarOdomBlender,
             features_extractor_kwargs=fe_kwargs
         )
-    elif extractor_args['type'] == "CenterlineCNN":
-        fe_kwargs = extractor_args['args']
-        fe_kwargs['num_agents'] = env_args['num_agents']
-        policy_kwargs = dict(
-            features_extractor_class=CenterlineCNN,
-            features_extractor_kwargs=fe_kwargs
-        )
     else:
         policy_kwargs = None
-    
+
+    seed = env_args['seed']
+    n_steps = env_args.get('n_steps', 1)
     if num_envs == 1:
-        env = make_env()
+        env = utils.make_env_single(env_args, render_mode, n_steps)
     else:
         if num_envs < 0:
             num_envs = os.cpu_count()
         env_inits = [
-            utils.make_envs(i, env_args, render_mode, seed=env_args['seed']) 
+            utils.make_envs(
+                i,
+                env_args, 
+                render_mode,
+                seed=seed
+            )
             for i in range(num_envs)
         ]
         env = vec_env_cls(env_inits, **vec_env_kwargs)
+    eval_env = DummyVecEnv([lambda: utils.make_env_single(env_args, render_mode, n_steps)])
+    if framestacks > 1:
+        env = VecFrameStack(env, framestacks, channels_order='first')
+        eval_env = VecFrameStack(eval_env, framestacks, channels_order='first')
 
-    eval_env = make_vec_env(
-        make_env,
-        n_envs=1,  # Use single env for evaluation
-        vec_env_cls=vec_env_cls,
-        vec_env_kwargs=vec_env_kwargs
-    )
 
     best_model_save_path = f"models/{yml_name}/{run_name}/best_model"
     os.makedirs(best_model_save_path, exist_ok=True)

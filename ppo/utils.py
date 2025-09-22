@@ -1,5 +1,5 @@
+from stable_baselines3.common.vec_env import VecFrameStack
 from stable_baselines3.common.monitor import Monitor
-from wandb.integration.sb3 import WandbCallback
 import gymnasium as gym
 
 from wandb.integration.sb3 import WandbCallback
@@ -50,6 +50,12 @@ def get_cfg_dicts(yml_path):
         return None
     
 
+def make_env_single(cfg: dict, render_mode: str, n_steps: int = 1):
+    env = gym.make('f1tenth-v0-legacy', config=cfg, render_mode=render_mode)
+    env = _apply_wrappers(env, n_steps)
+    return env
+
+
 def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
     """
     Custom vecenv creation to ensure that each vecenv
@@ -64,14 +70,18 @@ def make_envs(rank: int, global_cfg: dict, render_mode: str, seed: int = 0):
             track = global_cfg['map']
         local_cfg = global_cfg.copy()
         local_cfg['map'] = track
-        env = gym.make('f1tenth-v0-legacy', config=local_cfg, render_mode=render_mode)
-        if n_steps > 1:
-            env = MultiStepWrapper(env, n_steps)
-        env = Monitor(env)
+        env = make_env_single(local_cfg, render_mode, n_steps)
         env.reset(seed = seed + rank)
         return env
     
     return _init
+
+
+def _apply_wrappers(env: gym.Env, n_steps: int):
+    if n_steps > 1:
+        env = MultiStepWrapper(env, n_steps)
+    env = Monitor(env)
+    return env
 
 
 def downsample_centerline(centerline: np.ndarray, pcnt: float):

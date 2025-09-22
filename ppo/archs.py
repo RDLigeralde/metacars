@@ -12,6 +12,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
         num_agents: int,
         num_odom_layers: int,
         num_cline_layers: int = 0,
+        framestacks: int = 1,
         use_convs: bool = True
     ):
         """
@@ -20,14 +21,15 @@ class LidarOdomBlender(BaseFeaturesExtractor):
         with MLP for odometry data
         """
         self.num_beams = observation_space['scan'].shape[-1]
-        self.n_cline_points = observation_space['cline_ctx'].shape[-2]
+        self.n_cline_points = observation_space['cline_ctx'].shape[-2] # n_cline_points * framestacks
         self.num_odom_layers = num_odom_layers
         self.use_convs = use_convs
+        self.framestacks = framestacks
         self.embed_size = self._conv_outsize() * num_agents
         super().__init__(observation_space, features_dim=self.embed_size)
 
         self.convs = nn.Sequential(
-            nn.Conv1d(1, 24, kernel_size=10, stride=4),
+            nn.Conv1d(framestacks, 24, kernel_size=10, stride=4),
             nn.ReLU(),
             nn.Conv1d(24, 36, kernel_size=8, stride=4),
             nn.ReLU(),
@@ -41,7 +43,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
 
         self.odom_mlp = nn.ModuleList()
         if num_odom_layers > 0:
-            self.odom_mlp.append(nn.Linear(5 * num_agents, self.embed_size))
+            self.odom_mlp.append(nn.Linear(5 * num_agents * framestacks, self.embed_size))
             self.odom_mlp.append(nn.ReLU())
             for _ in range(num_odom_layers - 1):
                 self.odom_mlp.append(nn.Linear(self.embed_size, self.embed_size))
@@ -49,7 +51,10 @@ class LidarOdomBlender(BaseFeaturesExtractor):
 
         self.cline_mlp = nn.ModuleList()
         if num_cline_layers > 0:
-            self.cline_mlp.append(nn.Linear(self.n_cline_points * 2 * num_agents, self.embed_size))
+            self.cline_mlp.append(nn.Linear(
+                self.n_cline_points * 2 * num_agents, 
+                self.embed_size
+            ))
             self.cline_mlp.append(nn.ReLU())
             for _ in range(num_cline_layers - 1):
                 self.cline_mlp.append(nn.Linear(self.embed_size, self.embed_size))
@@ -57,15 +62,17 @@ class LidarOdomBlender(BaseFeaturesExtractor):
 
     def forward(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
         scan, odom, cline = obs["scan"], obs["odometry"], obs["cline_ctx"]
-        scan = scan.reshape(scan.shape[0], -1).unsqueeze(1) # (n_envs, 1, num_beams)
-        odom = odom.reshape(odom.shape[0], -1) # (n_envs, n_agents * odom_dim)
-        cline = cline.reshape(cline.shape[0], -1) # (n_envs, n_agents * n_cline_points * 2)
+        n_envs = scan.shape[0]
+        if len(scan.shape) == 2: # (n_envs, num_beams)
+            scan = scan.unsqueeze(1) # (n_envs, framestacks, num_beams)
+        odom = odom.reshape(n_envs, -1) # (n_envs, n_agents * odom_dim * framestacks)
+        cline = cline.reshape(n_envs, -1) # (n_envs, n_agents * n_cline_points * 2 * framestacks)
 
         if self.use_convs:
             x = self.convs(scan)
             x = torch.flatten(x, start_dim=1)
         else:
-            x = torch.zeros((odom.shape[0], self.embed_size), device=odom.device)
+            x = torch.zeros((n_envs, self.embed_size), device=odom.device)
         if len(self.odom_mlp) > 0:
             for layer in self.odom_mlp:
                 odom = layer(odom)
@@ -85,7 +92,7 @@ class LidarOdomBlender(BaseFeaturesExtractor):
         for kernel, stride in zip(kernels, strides):
             length = (length - (kernel - 1) - 1) // stride + 1
         return length * 64 # 64 channels in last conv layer
-    
+
 
 class CenterlineCNN(BaseFeaturesExtractor):
     def __init__(
@@ -114,7 +121,9 @@ class CenterlineCNN(BaseFeaturesExtractor):
             nn.ReLU(),
             nn.Conv1d(36, 48, kernel_size=3, stride=1),
             nn.ReLU(),
-            nn.Conv1d(48, 64, kernel_size=3, stride=1)
+            nn.Conv1d(48, 64, kernel_size=3, stride=1),
+            nn.ReLU(),
+            nn.Conv1d(64, 128, kernel_size=3, stride=1),
         )
 
     def forward(self, obs: Dict[str, torch.Tensor]) -> torch.Tensor:
@@ -136,11 +145,11 @@ class CenterlineCNN(BaseFeaturesExtractor):
         the easiest way to align param counts
         """
         length = self.n_cline_points
-        kernels = [5, 5, 3, 3]
-        strides = [2, 2, 1, 1]
+        kernels = [5, 5, 3, 3, 3]
+        strides = [2, 2, 1, 1, 1]
         for kernel, stride in zip(kernels, strides):
             length = (length - (kernel - 1) - 1) // stride + 1
-        return length * 64 # 64 channels in last conv layer
+        return length * 128 # 128 channels in last conv layer to roughly scale to scan conv size
 
 
 class TinyLidarFCN(nn.Module):
