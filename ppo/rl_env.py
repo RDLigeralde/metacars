@@ -342,7 +342,8 @@ class F110EnvLegacy(F110Env):
             milestone_reward = self._get_milestone_reward()
             steer_penalty = self._get_steering_change_penalty(current_idxs, action)
             vel_penalty = self._get_velocity_change_penalty(current_idxs, action)
-            slip_penalty = self._get_dtheta_penalty(agent_idx)
+            angvel_penalty = self._get_dtheta_penalty(agent_idx)
+            slip_penalty = self._get_slip_penalty()
             turn_speed_penalty = self._get_turn_speed_penalty(current_idxs, action)
             collision_penalty = self._get_collision_penalty(agent_idx)
             stagnation_penalty = self._get_stagnation_penalty(current_idxs, action)
@@ -353,6 +354,7 @@ class F110EnvLegacy(F110Env):
                 milestone_reward +
                 steer_penalty +
                 vel_penalty +
+                angvel_penalty +
                 slip_penalty +
                 turn_speed_penalty +
                 collision_penalty +
